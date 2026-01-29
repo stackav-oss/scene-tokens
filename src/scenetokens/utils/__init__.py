@@ -20,6 +20,8 @@ from scenetokens.utils.model_analysis_utils import (
 from scenetokens.utils.model_metric_analysis_utils import (
     group_analysis,
     model_to_model_analysis,
+    plot_causal_benchmark,
+    plot_egosafeshift,
     sample_selection_analysis,
 )
 from scenetokens.utils.pylogger import get_pylogger
@@ -50,6 +52,8 @@ __all__ = [
     "log_hyperparameters",
     "minmax_scaler",
     "model_to_model_analysis",
+    "plot_causal_benchmark",
+    "plot_egosafeshift",
     "plot_heatmap",
     "plot_manifold_by_tokens",
     "plot_scenario_class_distribution",
