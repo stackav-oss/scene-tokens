@@ -19,6 +19,8 @@ from scenetokens.utils.model_analysis_utils import (
 )
 from scenetokens.utils.model_metric_analysis_utils import (
     model_to_model_analysis,
+    plot_sample_selection_sweep_heatmap,
+    plot_sample_selection_sweep_lineplot,
     run_benchmark_analysis,
     sample_selection_analysis,
 )
@@ -51,6 +53,8 @@ __all__ = [
     "model_to_model_analysis",
     "plot_heatmap",
     "plot_manifold_by_tokens",
+    "plot_sample_selection_sweep_heatmap",
+    "plot_sample_selection_sweep_lineplot",
     "plot_scenario_class_distribution",
     "plot_tokenized_scenarios_by_score_percentile",
     "plot_uniqueness_index",

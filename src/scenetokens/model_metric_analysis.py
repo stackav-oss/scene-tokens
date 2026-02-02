@@ -32,6 +32,12 @@ def main(config: DictConfig) -> float | None:
     output_path = Path(config.output_path)
     output_path.mkdir(parents=True, exist_ok=True)
 
+    if config.run_sample_selection_sweep_lineplot_analysis:
+        utils.plot_sample_selection_sweep_lineplot(config, log, output_path)
+
+    if config.run_sample_selection_sweep_heatmap_analysis:
+        utils.plot_sample_selection_sweep_heatmap(config, log, output_path)
+
     if config.run_ego_safeshift_analysis:
         config.benchmark = config.ego_safeshift_benchmark
         config.benchmark_filepath = config.ego_safeshift_filepath
