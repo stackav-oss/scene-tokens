@@ -18,7 +18,6 @@ from scenetokens.utils.model_analysis_utils import (
     read_score_analysis,
 )
 from scenetokens.utils.model_metric_analysis_utils import (
-    group_analysis,
     model_to_model_analysis,
     run_benchmark_analysis,
     sample_selection_analysis,
@@ -44,7 +43,6 @@ __all__ = [
     "get_pylogger",
     "get_scenario_classes_best_mode",
     "get_scenario_classes_per_mode",
-    "group_analysis",
     "instantiate_callbacks",
     "instantiate_loggers",
     "load_batches",
