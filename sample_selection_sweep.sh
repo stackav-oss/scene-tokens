@@ -62,7 +62,6 @@ DEFAULT_STRATEGIES=(
   gumbel_token_hamming_drop
 )
 DEFAULT_PERCENTAGES=(0.45 0.55 0.65 0.75 0.85 0.95)
-DEFAULT_SAMPLE_SELECTION_PATH="./meta/scenetokens_strategies"
 
 dry_run=false
 
