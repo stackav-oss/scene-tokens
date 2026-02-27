@@ -1,8 +1,10 @@
+from collections.abc import Sequence
+
 import torch
 import torch.nn.functional as F  # noqa: N812
 from torch import nn
 
-from scenetokens.utils.constants import SMALL_EPSILON
+from scenetokens.utils.constants import DEFAULT_COLLISION_THRESHOLDS, SMALL_EPSILON
 
 
 def compute_jaccard_index(a: set[int], b: set[int]) -> float:
@@ -307,7 +309,7 @@ def compute_collision_rate(  # noqa: PLR0913
     ego_index: torch.Tensor,
     others_gt_trajs: torch.Tensor,
     others_gt_trajs_mask: torch.Tensor,
-    collision_thresholds: list[float] = [0.1, 0.25, 0.5, 1.0],  # noqa: B006
+    collision_thresholds: Sequence[float] | None = None,
     *,
     best_mode_only: bool = False,
 ) -> dict[str, torch.Tensor]:
@@ -326,14 +328,17 @@ def compute_collision_rate(  # noqa: PLR0913
         ego_index (torch.Tensor(B)): index of the ego agent in the others_gt_trajs tensor.
         others_gt_trajs (torch.Tensor(B, N, T, D)): ground truth trajectories of other agents.
         others_gt_trajs_mask (torch.Tensor(B, N, T)): mask for valid trajectory points of other agents.
-        collision_thresholds (list[float]): list of distance thresholds to consider a collision.
-        best_mode_only (bool): if True, only considers the best mode for collision calculation.
-        separate_by_thresholds (bool): if True, returns a dictionary with collision rates for each threshold, otherwise
-            returns a dictionary with a single key "collisionRateAllModes".
+        collision_thresholds (Sequence[float] | None): list of distance thresholds to consider for collision
+            calculation. If None, defaults to DEFAULT_COLLISION_THRESHOLDs = (0.1, 0.25, 0.5, 1.0).
+        best_mode_only (bool): if True, only considers the best mode for collision calculation. Here, best mode is
+            defined as the mode with the highest predicted probability. If False, considers all modes for calculation.
 
     Returns:
         collision_rate (dict[str, torch.Tensor]): dictionary containing the collision rate for each threshold.
     """
+    if collision_thresholds is None:
+        collision_thresholds = DEFAULT_COLLISION_THRESHOLDS
+
     batch_size, _, _, _ = ego_pred_traj.shape
 
     # Zero out the ego agent's trajectory in the others_gt_trajs tensor to avoid self-collision

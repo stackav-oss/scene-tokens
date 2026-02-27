@@ -327,13 +327,19 @@ class BaseModel(LightningModule, ABC):
 
     @staticmethod
     def _compute_trajectory_metrics(
-        inputs: dict[str, Any], trajectory_ouput: TrajectoryDecoderOutput, status: str
+        inputs: dict[str, Any], trajectory_output: TrajectoryDecoderOutput, status: str
     ) -> dict[str, npt.NDArray[np.float64]]:
         """Computes trajectory metrics on model outputs.
 
+        Notation:
+            B: batch size
+            M: number of predicted modes
+            F: future trajectory length
+            D: number of trajectory dimensions (µ_x, µ_y, sig_x, sig_y, p)
+
         Args:
             inputs (dict): dictionary containing input scenario information
-            trajectory_ouput: trajectory decoder output from the model's forward pass.
+            trajectory_output: trajectory decoder output from the model's forward pass.
             status (str): status of the model (e.g., "train", "eval").
 
         Returns:
@@ -348,8 +354,10 @@ class BaseModel(LightningModule, ABC):
         other_trajs = inputs["obj_trajs_future_state"]
         other_trajs_mask = inputs["obj_trajs_future_mask"]
 
-        predicted_traj = trajectory_ouput.decoded_trajectories.value
-        predicted_prob = trajectory_ouput.mode_probabilities.value
+        # Predicted trajectories shape (B, M, F, D)
+        predicted_traj = trajectory_output.decoded_trajectories.value
+        # Predicted mode probabilities shape (B, M)
+        predicted_prob = trajectory_output.mode_probabilities.value
 
         batch_size, num_modes = predicted_prob.shape
 
@@ -420,7 +428,7 @@ class BaseModel(LightningModule, ABC):
         """
         labels = causal_output.causal_gt.value
         predictions = causal_output.causal_pred.value
-        tp, tn, fp, fn = metric_utils.compute_binary_confusion_matrix(predictions, labels)
+        tp, tn, fp, fn = metric_utils.compute_binary_confusion_matrix(labels, predictions)
         precision, recall, f1_score = metric_utils.compute_accuracy(labels, predictions)
         return {
             "causalTP": tp.cpu().detach().numpy(),
@@ -442,27 +450,27 @@ class BaseModel(LightningModule, ABC):
         Returns:
             dict[str, npt.NDArray[np.float64]]: dictionary containing computed safety metrics
         """
-        indvidual_labels = safety_output.individual_safety_gt.value.squeeze(-1)
-        indvidual_predictions = safety_output.individual_safety_pred.value
+        individual_labels = safety_output.individual_safety_gt.value.squeeze(-1)
+        individual_predictions = safety_output.individual_safety_pred.value
         num_classes = safety_output.individual_safety_pred_probs.value.shape[-1]
-        precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
-            indvidual_labels, indvidual_predictions, num_classes
+        ind_precision, ind_recall, ind_f1_score = metric_utils.compute_multiclass_accuracy(
+            individual_labels, individual_predictions, num_classes
         )
 
         interaction_labels = safety_output.interaction_safety_gt.value.squeeze(-1)
         interaction_predictions = safety_output.interaction_safety_pred.value
         num_classes = safety_output.interaction_safety_pred_probs.value.shape[-1]
-        precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
+        int_precision, int_recall, int_f1_score = metric_utils.compute_multiclass_accuracy(
             interaction_labels, interaction_predictions, num_classes
         )
 
         return {
-            "individualPrecision": precision.cpu().detach().numpy(),
-            "individualRecall": recall.cpu().detach().numpy(),
-            "individualF1Score": f1_score.cpu().detach().numpy(),
-            "interactionPrecision": precision.cpu().detach().numpy(),
-            "interactionRecall": recall.cpu().detach().numpy(),
-            "interactionF1Score": f1_score.cpu().detach().numpy(),
+            "individualPrecision": ind_precision.cpu().detach().numpy(),
+            "individualRecall": ind_recall.cpu().detach().numpy(),
+            "individualF1Score": ind_f1_score.cpu().detach().numpy(),
+            "interactionPrecision": int_precision.cpu().detach().numpy(),
+            "interactionRecall": int_recall.cpu().detach().numpy(),
+            "interactionF1Score": int_f1_score.cpu().detach().numpy(),
         }
 
     @staticmethod
