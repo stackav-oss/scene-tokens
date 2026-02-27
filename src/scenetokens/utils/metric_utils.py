@@ -49,7 +49,7 @@ def compute_displacement_error(
 ) -> tuple[torch.Tensor, ...]:
     """Computes the average error between the valid states of two trajectories.
 
-    Nomenclature:
+    Notation:
         B: batch size
         M: number of modes
         T: number of timesteps
@@ -76,7 +76,7 @@ def compute_displacement_error(
 def compute_miss_rate(distances: torch.Tensor, miss_threshold: float = 2.0) -> torch.Tensor:
     """Computes the miss rate of the final distances.
 
-    Nomenclature:
+    Notation:
         B: batch size
         M: number of modes
 
@@ -95,7 +95,7 @@ def compute_miss_rate(distances: torch.Tensor, miss_threshold: float = 2.0) -> t
 def compute_perplexity(logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """Compute the perplexity, the uncertainty of the logits with the target.
 
-    Nomenclature:
+    Notation:
         B: batch size
         Q: number of queries
         V: vocabulary size
@@ -127,7 +127,7 @@ def compute_perplexity(logits: torch.Tensor, target: torch.Tensor) -> torch.Tens
 def compute_marginal_pdf(x: torch.Tensor, y: torch.Tensor, sigma: float = 0.1) -> tuple[torch.Tensor, torch.Tensor]:
     """Computes the marginal probability density function (PDF) given two variables.
 
-    Nomenclature:
+    Notation:
         B: batch size
         Q: number of queries
         C: number of classes
@@ -173,7 +173,7 @@ def compute_mutual_information(x: torch.Tensor, y: torch.Tensor, *, normalize: b
     marginal entropies and H(X;Y) is the conditional entropy. Implementation based on:
     https://github.com/connorlee77/pytorch-mutual-information
 
-    Nomenclature:
+    Notation:
         B: batch size
         Q: number of queries
         C: number of classes
@@ -313,7 +313,7 @@ def compute_collision_rate(  # noqa: PLR0913
 ) -> dict[str, torch.Tensor]:
     """Computes the collision rate between the predicted trajectory and other agents' trajectories.
 
-    Nomenclature:
+    Notation:
         B: batch size
         M: number of predicted modes
         T: number of timesteps
@@ -356,7 +356,7 @@ def compute_collision_rate(  # noqa: PLR0913
     # Invalidate masked GT trajectory points
     distances = distances.masked_fill(~other_agents_masks[:, None, :, :], float("inf"))
 
-    # NOTE: vectorized approach causes kernel issues: AssertionError: CUDA error: device-side assert triggered
+    # TODO: address issue with vectorized approach (AssertionError: CUDA error: device-side assert triggered)
     # Check for collisions based on distance thresholds
     # thresholds = torch.tensor(collision_thresholds, device=ego_pred_traj.device).view(1, 1, 1, 1, -1)
     # # Calculate collision counts: shape (B, M, N, T, num_thresholds)

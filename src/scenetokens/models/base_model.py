@@ -380,8 +380,7 @@ class BaseModel(LightningModule, ABC):
             "brierFDE": brier_fde.cpu().detach().numpy(),
         }
 
-        # NOTE: these metrics slow down training significantly, so will only be calculated during evaluation and if
-        # other agents' trajectories are available in the input data.
+        # NOTE: these metrics slow down training, so will only be calculated during evaluation.
         if status in ["val", "test"]:
             collision_rate = metric_utils.compute_collision_rate(
                 predicted_traj[:, :, :, :2],
