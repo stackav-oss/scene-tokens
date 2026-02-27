@@ -333,9 +333,11 @@ class BaseModel(LightningModule, ABC):
 
         Notation:
             B: batch size
+            N: number of agents in the scene
             M: number of predicted modes
             F: future trajectory length
-            D: number of trajectory dimensions (µ_x, µ_y, sig_x, sig_y, p)
+            Dp: number of predicted trajectory dimensions (µ_x, µ_y, sig_x, sig_y, p)
+            Ds: number of state dimensions in the ground truth trajectory
 
         Args:
             inputs (dict): dictionary containing input scenario information
@@ -345,24 +347,25 @@ class BaseModel(LightningModule, ABC):
         Returns:
             dict[str, npt.NDArray[np.float64]]: dictionary containing computed trajectory metrics
         """
-        gt_traj = inputs["center_gt_trajs"].unsqueeze(1)  # .transpose(0, 1).unsqueeze(0)
-        gt_traj_mask = inputs["center_gt_trajs_mask"].unsqueeze(1)
-        center_gt_final_valid_idx = inputs["center_gt_final_valid_idx"]
-        index_to_predict = inputs["track_index_to_predict"].squeeze(-1)
+        # Get ground truth trajectory and mask
+        gt_traj = inputs["center_gt_trajs"].unsqueeze(1)  # shape (B, 1, F, Ds)
+        gt_traj_mask = inputs["center_gt_trajs_mask"].unsqueeze(1)  # shape (B, 1, F)
+        center_gt_final_valid_idx = inputs["center_gt_final_valid_idx"]  # shape (B)
+        index_to_predict = inputs["track_index_to_predict"].squeeze(-1)  # shape (B)
 
         # Gather other agents' ground truth trajectories and masks
-        other_trajs = inputs["obj_trajs_future_state"]
-        other_trajs_mask = inputs["obj_trajs_future_mask"]
+        other_trajs = inputs["obj_trajs_future_state"]  # shape (B, N, F, Ds)
+        other_trajs_mask = inputs["obj_trajs_future_mask"]  # shape (B, N, F)
 
-        # Predicted trajectories shape (B, M, F, D)
-        predicted_traj = trajectory_output.decoded_trajectories.value
-        # Predicted mode probabilities shape (B, M)
-        predicted_prob = trajectory_output.mode_probabilities.value
+        # Get predicted trajectories and probabilities
+        predicted_traj = trajectory_output.decoded_trajectories.value  # shape (B, M, F, Dp)
+        predicted_prob = trajectory_output.mode_probabilities.value  # shape (B, M)
 
         batch_size, num_modes = predicted_prob.shape
 
         # Calculate metrics
         center_gt_final_valid_idx = center_gt_final_valid_idx.view(-1, 1, 1).repeat(1, num_modes, 1).to(torch.int64)
+
         # average and final displacement errors between the predicted and ground-truth trajectories
         ade, fde = metric_utils.compute_displacement_error(
             predicted_traj[:, :, :, :2],
@@ -370,8 +373,8 @@ class BaseModel(LightningModule, ABC):
             gt_traj_mask,
             center_gt_final_valid_idx,
         )
-        min_ade, _ = ade.min(axis=-1)
-        min_fde, best_fde_idx = fde.min(axis=-1)
+        min_ade, _ = ade.min(dim=-1)  # shape (B)
+        min_fde, best_fde_idx = fde.min(dim=-1)  # both are shape (B)
 
         # miss rate measues whether the final displacement is greater than a specified threshold
         miss_rate_all_modes = metric_utils.compute_miss_rate(fde)
@@ -398,7 +401,7 @@ class BaseModel(LightningModule, ABC):
                 other_trajs_mask.bool(),
             )
             collision_rate_best_mode = metric_utils.compute_collision_rate(
-                predicted_traj[:, best_fde_idx, :, :2],
+                predicted_traj[:, :, :, :2],
                 predicted_prob,
                 index_to_predict,
                 other_trajs[:, :, :, :2],
