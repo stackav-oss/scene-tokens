@@ -1,5 +1,8 @@
+"""BaseModel class for scenario modeling."""
+
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -8,13 +11,25 @@ from characterization.utils.common import AgentType
 from omegaconf import DictConfig
 from pytorch_lightning import LightningModule
 
-from scenetokens.schemas.output_schemas import ModelOutput, ScenarioScores
+from scenetokens.schemas.output_schemas import (
+    CausalOutput,
+    ModelOutput,
+    SafetyOutput,
+    ScenarioScores,
+    TrajectoryDecoderOutput,
+)
 from scenetokens.utils import metric_utils, save_cache
-from scenetokens.utils.constants import KALMAN_DIFFICULTY, MILLION, TrajectoryType
+from scenetokens.utils.constants import KALMAN_DIFFICULTY, MILLION, ModelStatus, TrajectoryType
 
 
 class BaseModel(LightningModule, ABC):
-    """Scenario Model wrapper based on: https://lightning.ai/docs/pytorch/latest/common/lightning_module.html"""
+    """Scenario Model wrapper based on: https://lightning.ai/docs/pytorch/latest/common/lightning_module.html
+
+    The BaseModel class provides a template for implementing scenario modeling architectures. It defines the structure
+    of the model, including the forward pass, optimizer configuration, and training/validation/testing steps. It also
+    includes utility functions for gathering input data, computing metrics, and logging information during training and
+    evaluation.
+    """
 
     def __init__(self, config: DictConfig) -> None:
         """Initializes the BaseModel class.
@@ -57,7 +72,7 @@ class BaseModel(LightningModule, ABC):
             model_output (ModelOutput): model schema encapsulating all model outputs.
         """
 
-    def configure_optimizers(self) -> dict:
+    def configure_optimizers(self) -> dict[str, Any]:  # pyright: ignore[reportIncompatibleMethodOverride]
         """Define and configure model optimizers and learning rate schedulers.
 
         Returns:
@@ -95,13 +110,14 @@ class BaseModel(LightningModule, ABC):
         print("\tNon-Trainable parameters: %.2fM" % (nontrainable_parameters / MILLION))
         return total_parameters
 
-    def model_step(self, batch: dict, batch_idx: int, status: str) -> torch.Tensor:
+    def model_step(self, batch: dict, batch_idx: int, status: ModelStatus) -> torch.Tensor:
         """Takes a model step, calculates the loss value and logs model outputs.
 
         Args:
             batch (dict): dictionary containing the batch information from the collate function.
             batch_idx (int): index of current batch.
-            status (str): modeling status ('train', 'val', 'test')
+            status (ModelStatus): status of the model, either of ModelStatus.TRAIN, ModelStatus.VALIDATION, or
+                ModelStatus.TEST.
 
         Returns:
             loss (torch.Tensor): a tensor containing the model's loss.
@@ -112,8 +128,8 @@ class BaseModel(LightningModule, ABC):
         if self.sample_selection:
             cache_filepath = Path(self.batch_cache_path, f"train_batch_{batch_idx}.pkl")
             save_cache(model_output, cache_filepath)
-        elif status != "train" and self.cache_batch and batch_idx % self.cache_every_batch_idx:
-            cache_filepath = Path(self.batch_cache_path, f"{status}_batch_{batch_idx}.pkl")
+        elif status != ModelStatus.TRAIN and self.cache_batch and batch_idx % self.cache_every_batch_idx == 0:
+            cache_filepath = Path(self.batch_cache_path, f"{status.value}_batch_{batch_idx}.pkl")
             save_cache(model_output, cache_filepath)
         return loss
 
@@ -128,7 +144,7 @@ class BaseModel(LightningModule, ABC):
         ------
             loss (torch.Tensor): model's loss value.
         """
-        return self.model_step(batch, batch_idx, status="train")
+        return self.model_step(batch, batch_idx, status=ModelStatus.TRAIN)
 
     def validation_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Performs a model step on a validation batch.
@@ -141,7 +157,7 @@ class BaseModel(LightningModule, ABC):
         ------
             loss (torch.Tensor): model's loss value.
         """
-        return self.model_step(batch, batch_idx, status="val")
+        return self.model_step(batch, batch_idx, status=ModelStatus.VALIDATION)
 
     def test_step(self, batch: dict, batch_idx: int) -> torch.Tensor:
         """Performs a model step on a testing batch.
@@ -154,7 +170,7 @@ class BaseModel(LightningModule, ABC):
         ------
             loss (torch.Tensor): model's loss value.
         """
-        return self.model_step(batch, batch_idx, status="test")
+        return self.model_step(batch, batch_idx, status=ModelStatus.TEST)
 
     @staticmethod
     def gather_input(inputs: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -311,93 +327,189 @@ class BaseModel(LightningModule, ABC):
         return split_dict
 
     @staticmethod
-    def compute_metrics(inputs: dict, outputs: ModelOutput) -> dict[str, npt.NDArray[np.float64]]:
+    def _compute_trajectory_metrics(
+        inputs: dict[str, Any], trajectory_output: TrajectoryDecoderOutput, status: ModelStatus
+    ) -> dict[str, npt.NDArray[np.float64]]:
+        """Computes trajectory metrics on model outputs.
+
+        Notation:
+            B: batch size
+            N: number of agents in the scene
+            M: number of predicted modes
+            F: future trajectory length
+            Dp: number of predicted trajectory dimensions (µ_x, µ_y, sig_x, sig_y, p)
+            Ds: number of state dimensions in the ground truth trajectory
+
+        Args:
+            inputs (dict): dictionary containing input scenario information
+            trajectory_output: trajectory decoder output from the model's forward pass.
+            status (ModelStatus): status of the model, either of ModelStatus.TRAIN, ModelStatus.VALIDATION, or
+                ModelStatus.TEST.
+
+        Returns:
+            dict[str, npt.NDArray[np.float64]]: dictionary containing computed trajectory metrics
+        """
+        # Get ground truth trajectory and mask
+        gt_traj = inputs["center_gt_trajs"].unsqueeze(1)  # shape (B, 1, F, Ds)
+        gt_traj_mask = inputs["center_gt_trajs_mask"].unsqueeze(1)  # shape (B, 1, F)
+        center_gt_final_valid_idx = inputs["center_gt_final_valid_idx"]  # shape (B)
+        index_to_predict = inputs["track_index_to_predict"].squeeze(-1)  # shape (B)
+
+        # Gather other agents' ground truth trajectories and masks
+        other_trajs = inputs["obj_trajs_future_state"]  # shape (B, N, F, Ds)
+        other_trajs_mask = inputs["obj_trajs_future_mask"]  # shape (B, N, F)
+
+        # Get predicted trajectories and probabilities
+        predicted_traj = trajectory_output.decoded_trajectories.value  # shape (B, M, F, Dp)
+        predicted_prob = trajectory_output.mode_probabilities.value  # shape (B, M)
+
+        batch_size, num_modes = predicted_prob.shape
+
+        # Calculate metrics
+        center_gt_final_valid_idx = center_gt_final_valid_idx.view(-1, 1, 1).repeat(1, num_modes, 1).to(torch.int64)
+
+        # average and final displacement errors between the predicted and ground-truth trajectories
+        ade, fde = metric_utils.compute_displacement_error(
+            predicted_traj[:, :, :, :2],
+            gt_traj[:, :, :, :2],
+            gt_traj_mask,
+            center_gt_final_valid_idx,
+        )
+        min_ade, _ = ade.min(dim=-1)  # shape (B)
+        min_fde, best_fde_idx = fde.min(dim=-1)  # both are shape (B)
+
+        # miss rate measures whether the final displacement is greater than a specified threshold
+        miss_rate_all_modes = metric_utils.compute_miss_rate(fde)
+        miss_rate_best_mode = metric_utils.compute_miss_rate(min_fde.unsqueeze(-1))
+
+        best_fde_predicted_prob = predicted_prob[torch.arange(batch_size), best_fde_idx]
+        brier_fde = min_fde + torch.square(1 - best_fde_predicted_prob)
+
+        metrics = {
+            "minADE6": min_ade.cpu().detach().numpy(),
+            "minFDE6": min_fde.cpu().detach().numpy(),
+            "missRate6": miss_rate_all_modes.cpu().detach().numpy(),
+            "missRate": miss_rate_best_mode.cpu().detach().numpy(),
+            "brierFDE": brier_fde.cpu().detach().numpy(),
+        }
+
+        # NOTE: these metrics slow down training, so will only be calculated during evaluation.
+        if status in [ModelStatus.VALIDATION, ModelStatus.TEST]:
+            collision_rate = metric_utils.compute_collision_rate(
+                predicted_traj[:, :, :, :2],
+                predicted_prob,
+                index_to_predict,
+                other_trajs[:, :, :, :2],
+                other_trajs_mask.bool(),
+            )
+            collision_rate_best_mode = metric_utils.compute_collision_rate(
+                predicted_traj[:, :, :, :2],
+                predicted_prob,
+                index_to_predict,
+                other_trajs[:, :, :, :2],
+                other_trajs_mask.bool(),
+                best_mode_only=True,
+            )
+            metrics.update(
+                {f"collisionRate{threshold}": rate.cpu().detach().numpy() for threshold, rate in collision_rate.items()}
+            )
+            metrics.update(
+                {
+                    f"collisionRateBestMode{threshold}": rate.cpu().detach().numpy()
+                    for threshold, rate in collision_rate_best_mode.items()
+                }
+            )
+        return metrics
+
+    @staticmethod
+    def _compute_causal_metrics(causal_output: CausalOutput) -> dict[str, npt.NDArray[np.float64]]:
+        """Computes causal metrics on model outputs.
+
+        Args:
+            causal_output: causal output from the model's forward pass.
+
+        Returns:
+            dict[str, npt.NDArray[np.float64]]: dictionary containing computed causal metrics
+        """
+        labels = causal_output.causal_gt.value
+        predictions = causal_output.causal_pred.value
+        tp, tn, fp, fn = metric_utils.compute_binary_confusion_matrix(labels, predictions)
+        precision, recall, f1_score = metric_utils.compute_accuracy(labels, predictions)
+        return {
+            "causalTP": tp.cpu().detach().numpy(),
+            "causalTN": tn.cpu().detach().numpy(),
+            "causalFP": fp.cpu().detach().numpy(),
+            "causalFN": fn.cpu().detach().numpy(),
+            "precision": precision.cpu().detach().numpy(),
+            "recall": recall.cpu().detach().numpy(),
+            "f1Score": f1_score.cpu().detach().numpy(),
+        }
+
+    @staticmethod
+    def _compute_safety_metrics(safety_output: SafetyOutput) -> dict[str, npt.NDArray[np.float64]]:
+        """Computes safety metrics on model outputs.
+
+        Args:
+            safety_output: safety output from the model's forward pass.
+
+        Returns:
+            dict[str, npt.NDArray[np.float64]]: dictionary containing computed safety metrics
+        """
+        individual_labels = safety_output.individual_safety_gt.value.squeeze(-1)
+        individual_predictions = safety_output.individual_safety_pred.value
+        num_classes = safety_output.individual_safety_pred_probs.value.shape[-1]
+        ind_precision, ind_recall, ind_f1_score = metric_utils.compute_multiclass_accuracy(
+            individual_labels, individual_predictions, num_classes
+        )
+
+        interaction_labels = safety_output.interaction_safety_gt.value.squeeze(-1)
+        interaction_predictions = safety_output.interaction_safety_pred.value
+        num_classes = safety_output.interaction_safety_pred_probs.value.shape[-1]
+        int_precision, int_recall, int_f1_score = metric_utils.compute_multiclass_accuracy(
+            interaction_labels, interaction_predictions, num_classes
+        )
+
+        return {
+            "individualPrecision": ind_precision.cpu().detach().numpy(),
+            "individualRecall": ind_recall.cpu().detach().numpy(),
+            "individualF1Score": ind_f1_score.cpu().detach().numpy(),
+            "interactionPrecision": int_precision.cpu().detach().numpy(),
+            "interactionRecall": int_recall.cpu().detach().numpy(),
+            "interactionF1Score": int_f1_score.cpu().detach().numpy(),
+        }
+
+    @staticmethod
+    def compute_metrics(
+        inputs: dict[str, Any], outputs: ModelOutput, status: ModelStatus
+    ) -> dict[str, npt.NDArray[np.float64]]:
         """Computes task metrics on model outputs.
 
         Args:
             inputs (dict): dictionary containing input scenario information
             outputs (ModelOutput): pydantic validator with model output information.
+            status (ModelStatus): status of the model, either of ModelStatus.TRAIN, ModelStatus.VALIDATION, or
+                ModelStatus.TEST.
 
         Returns:
-            _type_: _description_
+            dict[str, npt.NDArray[np.float64]]: dictionary containing computed metrics.
         """
-        gt_traj = inputs["center_gt_trajs"].unsqueeze(1)  # .transpose(0, 1).unsqueeze(0)
-        gt_traj_mask = inputs["center_gt_trajs_mask"].unsqueeze(1)
-        center_gt_final_valid_idx = inputs["center_gt_final_valid_idx"]
-
         # Report trajectory metrics if trajectory outputs are available
         metric_dict = {}
-        trajectory_ouput = outputs.trajectory_decoder_output
-        if trajectory_ouput is not None:
-            predicted_traj = trajectory_ouput.decoded_trajectories.value
-            predicted_prob = trajectory_ouput.mode_probabilities.value
-
-            batch_size, num_modes = predicted_prob.shape
-
-            # Calculate metrics
-            center_gt_final_valid_idx = center_gt_final_valid_idx.view(-1, 1, 1).repeat(1, num_modes, 1).to(torch.int64)
-            # average and final displacement errors between the predicted and ground-truth trajectories
-            ade, fde = metric_utils.compute_displacement_error(
-                predicted_traj[:, :, :, :2],
-                gt_traj[:, :, :, :2],
-                gt_traj_mask,
-                center_gt_final_valid_idx,
-            )
-            min_ade, _ = ade.min(axis=-1)
-            min_fde, best_fde_idx = fde.min(axis=-1)
-
-            # miss rate measues whether the final displacement is greater than a specified threshold
-            miss_rate_all_modes = metric_utils.compute_miss_rate(fde)
-            miss_rate_best_mode = metric_utils.compute_miss_rate(min_fde.unsqueeze(-1))
-
-            predicted_prob = predicted_prob[torch.arange(batch_size), best_fde_idx]
-            brier_fde = min_fde + torch.square(1 - predicted_prob)
-
-            metric_dict = {
-                "minADE6": min_ade.cpu().detach().numpy(),
-                "minFDE6": min_fde.cpu().detach().numpy(),
-                "missRate6": miss_rate_all_modes.cpu().detach().numpy(),
-                "missRate": miss_rate_best_mode.cpu().detach().numpy(),
-                "brierFDE": brier_fde.cpu().detach().numpy(),
-            }
+        trajectory_output = outputs.trajectory_decoder_output
+        if trajectory_output is not None:
+            trajectory_metrics = BaseModel._compute_trajectory_metrics(inputs, trajectory_output, status)
+            metric_dict.update(trajectory_metrics)
 
         # Report causal metrics if causal outputs are available
         causal_output = outputs.causal_output
         if causal_output is not None:
-            labels = causal_output.causal_gt.value
-            predictions = causal_output.causal_pred.value
-            tp, tn, fp, fn = metric_utils.compute_binary_confusion_matrix(predictions, labels)
-            metric_dict["causalTP"] = tp.cpu().detach().numpy()
-            metric_dict["causalTN"] = tn.cpu().detach().numpy()
-            metric_dict["causalFP"] = fp.cpu().detach().numpy()
-            metric_dict["causalFN"] = fn.cpu().detach().numpy()
-
-            precision, recall, f1_score = metric_utils.compute_accuracy(labels, predictions)
-            metric_dict["precision"] = precision.cpu().detach().numpy()
-            metric_dict["recall"] = recall.cpu().detach().numpy()
-            metric_dict["f1Score"] = f1_score.cpu().detach().numpy()
+            causal_metrics = BaseModel._compute_causal_metrics(causal_output)
+            metric_dict.update(causal_metrics)
 
         safety_output = outputs.safety_output
         if safety_output is not None:
-            indvidual_labels = safety_output.individual_safety_gt.value.squeeze(-1)
-            indvidual_predictions = safety_output.individual_safety_pred.value
-            num_classes = safety_output.individual_safety_pred_probs.value.shape[-1]
-            precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
-                indvidual_labels, indvidual_predictions, num_classes
-            )
-            metric_dict["individualPrecision"] = precision.cpu().detach().numpy()
-            metric_dict["individualRecall"] = recall.cpu().detach().numpy()
-            metric_dict["individualF1Score"] = f1_score.cpu().detach().numpy()
-
-            interaction_labels = safety_output.interaction_safety_gt.value.squeeze(-1)
-            interaction_predictions = safety_output.interaction_safety_pred.value
-            num_classes = safety_output.interaction_safety_pred_probs.value.shape[-1]
-            precision, recall, f1_score = metric_utils.compute_multiclass_accuracy(
-                interaction_labels, interaction_predictions, num_classes
-            )
-            metric_dict["interactionPrecision"] = precision.cpu().detach().numpy()
-            metric_dict["interactionRecall"] = recall.cpu().detach().numpy()
-            metric_dict["interactionF1Score"] = f1_score.cpu().detach().numpy()
+            safety_metrics = BaseModel._compute_safety_metrics(safety_output)
+            metric_dict.update(safety_metrics)
 
         # TODO: review these metrics
         # If training a model with a scenario classification head, log perplexity and mutual information.
@@ -421,17 +533,20 @@ class BaseModel(LightningModule, ABC):
         #     loss_dict["mutualInformation"] = mutual_information.cpu().detach().numpy()
         return metric_dict
 
-    def log_info(self, inputs: dict, outputs: ModelOutput, loss: torch.Tensor, status: str = "train") -> None:
+    def log_info(
+        self, inputs: dict, outputs: ModelOutput, loss: torch.Tensor, status: ModelStatus = ModelStatus.TRAIN
+    ) -> None:
         """Logs metric values after training and validation steps.
 
         Args:
             inputs (dict): dictionary containing input scenario information
             outputs (ModelOutput): pydantic validator with model output information.
             loss: (torch.Tensor): model's loss value.
-            status (str): whether the info is logged from training step or validation step.
+            status (ModelStatus): status of the model, either of ModelStatus.TRAIN, ModelStatus.VALIDATION, or
+                ModelStatus.TEST.
         """
         # Split based on dataset
-        metric_dict = BaseModel.compute_metrics(inputs, outputs)
+        metric_dict = BaseModel.compute_metrics(inputs, outputs, status)
         metric_list = list(metric_dict.keys())
 
         # Separate the loss dictionary by sub-dataset name
@@ -439,7 +554,7 @@ class BaseModel(LightningModule, ABC):
         new_dict = BaseModel.split_by_dataset_name(dataset_names, metric_dict, metric_list)
         metric_dict.update(new_dict)
 
-        if status == "val" and self.config.get("eval", False):
+        if status == ModelStatus.VALIDATION and self.config.get("eval", False):
             # Separate the loss dictionary by trajectory type
             trajectory_types = inputs["trajectory_type"].cpu().numpy()
             new_dict = BaseModel.split_by_trajectory_type(trajectory_types, metric_dict, metric_list)
@@ -460,10 +575,10 @@ class BaseModel(LightningModule, ABC):
 
         # Log information
         total_loss = loss.cpu().detach().item()
-        self.log(f"losses/{status}", total_loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log(f"losses/{status.value}", total_loss, on_step=False, on_epoch=True, prog_bar=True)
         for k, v in metric_dict.items():
             batch_size = size_dict[k]
-            self.log(status + "/" + k, v, on_step=False, on_epoch=True, sync_dist=True, batch_size=batch_size)
+            self.log(status.value + "/" + k, v, on_step=False, on_epoch=True, sync_dist=True, batch_size=batch_size)
 
         # TODO: add support for visualization of scenarios
         # if self.local_rank == 0 and status == 'val' and batch_idx == 0:

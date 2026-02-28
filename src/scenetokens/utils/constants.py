@@ -6,8 +6,17 @@ SMALL_EPSILON = 1e-10
 BIG_EPSILON = 1e10
 POSITION_DIMS = [2, 3]
 MIN_VALID_POINTS = 2
+
+DEFAULT_COLLISION_THRESHOLDS: tuple[float, ...] = (0.1, 0.25, 0.5, 1.0)
+
 # NOTE: borrowed from UniTraj: https://arxiv.org/pdf/2403.15098. They don't explain why these ranges were selected.
 KALMAN_DIFFICULTY = {"easy": [0, 30], "medium": [30, 60], "hard": [60, 9999999]}
+
+
+class ModelStatus(Enum):
+    TRAIN = "train"
+    VALIDATION = "val"
+    TEST = "test"
 
 
 class SampleSelection(Enum):
