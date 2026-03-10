@@ -4,6 +4,7 @@ between the subsets.
 """
 
 import argparse
+import json
 from pathlib import Path
 
 import h5py
@@ -63,8 +64,76 @@ def _compute_score_heatmap(h5_files: list[Path]) -> NDArray[np.int_]:
     return heatmap
 
 
-def plot_agent_score_distributions(data_cache_path: Path, data_subsets: list[str], output_path: Path) -> None:
-    """Visualizes the agent score distributions for different data subsets as categorical heatmaps.
+def _save_summary(summary: dict, output_path: Path, filename: str) -> None:
+    """Save summary dictionary to JSON file.
+
+    Args:
+        summary (dict): Summary data to save.
+        output_path (Path): Path to save the file.
+        filename (str): Name of the output file.
+    """
+    filepath = output_path / filename
+    with filepath.open("w") as f:
+        json.dump(summary, f, indent=4)
+
+
+def _compute_distribution_summary(heatmap: NDArray[np.int_]) -> dict:
+    """Compute distribution summary from heatmap.
+
+    Args:
+        heatmap (NDArray[np.int_]): The heatmap array.
+
+    Returns:
+        dict: Summary statistics.
+    """
+    total_agents = heatmap.sum()
+    interaction_assignments = heatmap.sum(axis=0)
+    interaction_distribution = interaction_assignments / total_agents
+    individual_assignments = heatmap.sum(axis=1)
+    individual_distribution = individual_assignments / total_agents
+
+    return {
+        "total_agents": total_agents.item(),
+        "interaction_assignments": interaction_assignments.tolist(),
+        "individual_assignments": individual_assignments.tolist(),
+        "interaction_distribution": interaction_distribution.round(3).tolist(),
+        "individual_distribution": individual_distribution.round(3).tolist(),
+        "inv_interaction_distribution": (1 - interaction_distribution).round(3).tolist(),
+        "inv_individual_distribution": (1 - individual_distribution).round(3).tolist(),
+    }
+
+
+def _visualize_and_save_heatmap(heatmap: NDArray[np.int_], data_subset: str, output_path: Path) -> None:
+    """Visualize heatmap and save as PNG.
+
+    Args:
+        heatmap (NDArray[np.int_]): The heatmap array.
+        data_subset (str): Name of the data subset.
+        output_path (Path): Path to save the output.
+    """
+    sns.heatmap(
+        heatmap,
+        annot=True,
+        fmt="d",
+        cmap="rocket_r",
+        linewidths=0.5,
+        linecolor="black",
+        cbar_kws={"label": "Number of Agents"},
+        annot_kws={"fontsize": 6},
+    )
+    plt.xlabel("Interaction Agent Scores")
+    plt.ylabel("Individual Agent Scores")
+    plt.title(f"Agent Scores Heatmap for Subset: {data_subset}")
+    plt.gca().invert_yaxis()
+    plt.tight_layout()
+
+    output_filepath = output_path / f"{data_subset}_heatmap.png"
+    plt.savefig(output_filepath, dpi=300)
+    plt.close()
+
+
+def compute_agent_score_distributions(data_cache_path: Path, data_subsets: list[str], output_path: Path) -> None:
+    """Computes the agent score distributions for different data subsets as categorical heatmaps.
 
     Args:
         data_cache_path (Path): Path to the data cache.
@@ -82,25 +151,13 @@ def plot_agent_score_distributions(data_cache_path: Path, data_subsets: list[str
 
         heatmap = _compute_score_heatmap(h5_files)
 
-        sns.heatmap(
-            heatmap,
-            annot=True,
-            fmt="d",
-            cmap="rocket_r",
-            linewidths=0.5,
-            linecolor="black",
-            cbar_kws={"label": "Number of Agents"},
-            annot_kws={"fontsize": 6},
-        )
-        plt.xlabel("Interaction Agent Scores")
-        plt.ylabel("Individual Agent Scores")
-        plt.title(f"Agent Scores Heatmap for Subset: {data_subset}")
-        plt.gca().invert_yaxis()
-        plt.tight_layout()
+        _visualize_and_save_heatmap(heatmap, data_subset, output_path)
 
-        output_filepath = output_path / f"{data_subset}_heatmap.png"
-        plt.savefig(output_filepath, dpi=300)
-        plt.close()
+        summary = _compute_distribution_summary(heatmap)
+        _save_summary(summary, output_path, f"{data_subset}_summary.json")
+
+        filtered_summary = _compute_distribution_summary(heatmap[1:, 1:])
+        _save_summary(filtered_summary, output_path, f"{data_subset}_filtered_summary.json")
 
 
 if __name__ == "__main__":
@@ -111,7 +168,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--data_subsets",
         type=list[str],
-        default=["causal-ego-safeshift-training", "causal-ego-safeshift-id", "causal-ego-safeshift-ood"],
+        default=["causal-ego-safeshift-id", "causal-ego-safeshift-ood", "causal-ego-safeshift-training"],
         help="List of data subsets to analyze.",
     )
     parser.add_argument(
@@ -122,4 +179,4 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    plot_agent_score_distributions(args.data_cache_path, args.data_subsets, args.output_path)
+    compute_agent_score_distributions(args.data_cache_path, args.data_subsets, args.output_path)
