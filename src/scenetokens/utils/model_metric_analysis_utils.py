@@ -571,12 +571,10 @@ def _plot_sample_selection_sweep_heatmap_baseline_gap(  # noqa: PLR0912, PLR0915
                 gap_val = row[j]
 
                 # Highlight if gap is negative (improvement over baseline)
+                edge_color, marker_color = "black", "black"
                 if gap_val < 0:
                     edge_color = highlight_color
                     marker_color = highlight_color
-                else:
-                    edge_color = "black"
-                    marker_color = "black"
 
                 if config.add_rectangle_annotation:
                     ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, edgecolor=edge_color, linewidth=3))
@@ -598,24 +596,8 @@ def _plot_sample_selection_sweep_heatmap_baseline_gap(  # noqa: PLR0912, PLR0915
 
         # Legend handles to show best strategies
         legend = [
-            Line2D(
-                [0],
-                [0],
-                marker="*",
-                color=highlight_color,
-                linestyle="None",
-                markersize=10,
-                label="Best strategy (closest to baseline)",
-            ),
-            Line2D(
-                [0],
-                [0],
-                marker="*",
-                color="black",
-                linestyle="None",
-                markersize=10,
-                label="Best strategy (worse than baseline)",
-            ),
+            Line2D([0], [0], marker="*", color=highlight_color, markersize=10, label="Best strategy > base"),
+            Line2D([0], [0], marker="*", color="black", markersize=10, label="Best strategy in group"),
         ]
 
         # Save figure
