@@ -7,6 +7,7 @@ Example usage:
 See `docs/MODEL_TRAINING.md` and `configs/train.yaml` for more argument details.
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import hydra
@@ -61,9 +62,6 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
     log.info("Instantiating trainer <%s>", cfg.trainer._target_)
     trainer: Trainer = hydra.utils.instantiate(cfg.trainer, callbacks=callbacks, logger=logger)
 
-    log.info("Instantiating model <%s>", cfg.model._target_)
-    model: LightningModule = hydra.utils.instantiate(cfg.model)
-
     log.info("Instantiating training dataset <%s>", cfg.dataset._target_)
     cfg.dataset.config.split = DataSplits.TRAINING
     training_dataset: Dataset = hydra.utils.instantiate(cfg.dataset)
@@ -74,6 +72,16 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
         drop_last=False,
         collate_fn=training_dataset.collate_fn,
     )
+
+    if cfg.model._target_ == "scenetokens.models.mtr.MTR":
+        intention_file = cfg.model.config.motion_decoder.get("intention_points_file")
+        if intention_file is None or not Path(intention_file).exists():
+            log.info("MTR intention points not found — computing from training data ...")
+            saved_path = utils.compute_and_cache_intention_points(train_loader, cfg)
+            cfg.model.config.motion_decoder.intention_points_file = saved_path
+
+    log.info("Instantiating model <%s>", cfg.model._target_)
+    model: LightningModule = hydra.utils.instantiate(cfg.model)
 
     log.info("Instantiating validation dataset <%s>", cfg.dataset._target_)
     cfg.dataset.config.split = DataSplits.VALIDATION
@@ -96,10 +104,6 @@ def train(cfg: DictConfig) -> tuple[dict, dict]:
         "logger": logger,
         "trainer": trainer,
     }
-
-    # if logger:
-    #     log.info("Logging hyperparameters!")
-    #     utils.log_hyperparameters(object_dict)
 
     if cfg.get("compile"):
         log.info("Compiling model!")

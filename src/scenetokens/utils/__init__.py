@@ -1,6 +1,7 @@
 from scenetokens.utils import constants
 from scenetokens.utils.data_utils import load_batches, minmax_scaler, save_cache
 from scenetokens.utils.instantiators import instantiate_callbacks, instantiate_loggers
+from scenetokens.utils.intention_points_utils import compute_and_cache_intention_points
 from scenetokens.utils.model_analysis_utils import (
     compute_alignment_scores,
     compute_dimensionality_reduction,
@@ -18,7 +19,6 @@ from scenetokens.utils.model_analysis_utils import (
     read_score_analysis,
 )
 from scenetokens.utils.model_metric_analysis_utils import (
-    model_to_model_analysis,
     plot_sample_selection_sweep_heatmap,
     plot_sample_selection_sweep_lineplot,
     run_benchmark_analysis,
@@ -31,6 +31,7 @@ from scenetokens.utils.utils import disable_mlflow_tls_verification, extras, get
 
 __all__ = [
     "compute_alignment_scores",
+    "compute_and_cache_intention_points",
     "compute_dimensionality_reduction",
     "compute_group_uniqueness",
     "compute_intergroup_uniqueness",
@@ -49,7 +50,6 @@ __all__ = [
     "load_batches",
     "log_hyperparameters",
     "minmax_scaler",
-    "model_to_model_analysis",
     "plot_heatmap",
     "plot_manifold_by_tokens",
     "plot_sample_selection_sweep_heatmap",
