@@ -75,6 +75,9 @@ Current model versions are:
 - *ScenetokensStudent*: which builds from Wayformer and adds a scenario tokenization layer. To use it, run `train.py` with `model=scenetokens_student`.
 - *ScenetokensTeacher*: which builds from Wayformer and adds a scenario tokenization layer with causal awareness. To use it, run `train.py` with `model=scenetokens_teacher`.
 - *ScenetokensTeacherUnmasked*: which builds from Wayformer and adds a scenario tokenization layer with causal awareness. Ablation of *ScenetokensTeacher*. To use it, run `train.py` with `model=scenetokens_teacher_unmasked`.
+- *AutoBot*: which follows the architecture from [Girgis et al., ICLR 2022](https://arxiv.org/abs/2104.00563), adapted from [UniTraj](https://github.com/vita-epfl/UniTraj). Implements multi-modal trajectory prediction with factorized temporal and social attention. To use it, run `train.py` with `model=autobot`.
+- *MTR*: which follows the architecture from [Shi et al., NeurIPS 2022](https://arxiv.org/abs/2209.13508). Implements multi-modal trajectory prediction with a PointNet polyline encoder, a global transformer, and intention-point-conditioned motion queries. To use it, run `train.py` with `model=mtr`. **NOTES**:
+    - On the first training run, intention points (k-means cluster centers of trajectory endpoints) are automatically computed from the training data and cached to disk. Subsequent runs load the cached file.
 - *SafeSceneTokens*: which builds from Wayformer and adds a scenario tokenization layer with safety-relevance awareness. To use it, run `train.py` with `model=safe_scenetokens`. **NOTES**:
     - This model requires additional labels which can be produced using categorization meta files generated using the [ScenarioCharacterization](https://github.com/navarrs/ScenarioCharacterization) tool.
     - Instructions on how to generate the labeling files using this package will be added in the future.
