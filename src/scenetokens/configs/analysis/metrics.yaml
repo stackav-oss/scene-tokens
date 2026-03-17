@@ -5,6 +5,7 @@ models_to_compare: [
   'autobot',
   'scenetransformer',
   'wayformer',
+  'mtr',
   'causal-scenetokens',
   'safe-scenetokens',
   'scenetokens',
