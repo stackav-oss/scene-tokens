@@ -19,6 +19,7 @@ MODEL_NAME_MAP = {
     "autobot": "AutoBot",
     "scenetransformer": "SceneTransformer",
     "wayformer": "Wayformer",
+    "mtr": "MTR",
     "scenetokens": "ST",
     "causal-scenetokens": "Causal-ST",
     "safe-scenetokens": "Safe-ST",
@@ -31,6 +32,7 @@ MODEL_SIZE_MAP = {
     "ST": "15.3M",
     "Causal-ST": "15.6M",
     "Safe-ST": "15.6M",
+    "MTR": "27.2M",  # This is the size with d_model=256. The original MTR with d_model=512 has 65M parameters.
 }
 
 BENCHMARK_NAME_MAP = {
