@@ -951,9 +951,7 @@ class BaseDataset(Dataset, ABC):
         sampled_shift = np.roll(sampled, shift=1, axis=0)
         buffer = np.concatenate((sampled[:, 0:2], sampled_shift[:, 0:2]), axis=-1)  # (P', 4)
         buffer[0, 2:4] = buffer[0, 0:2]  # no break at the very first point
-        break_idxs = (
-            np.linalg.norm(buffer[:, 0:2] - buffer[:, 2:4], axis=-1) > vector_break_dist_thresh
-        ).nonzero()[0]
+        break_idxs = (np.linalg.norm(buffer[:, 0:2] - buffer[:, 2:4], axis=-1) > vector_break_dist_thresh).nonzero()[0]
 
         # Chunk each segment into fixed-size windows of num_points_each_polyline.
         polyline_list = np.array_split(sampled, break_idxs, axis=0)
@@ -971,7 +969,7 @@ class BaseDataset(Dataset, ABC):
                 ret_polylines.append(cur)
                 ret_polylines_mask.append(cur_mask)
 
-        batch_polylines = np.stack(ret_polylines, axis=0)       # (K, N, Dp)
+        batch_polylines = np.stack(ret_polylines, axis=0)  # (K, N, Dp)
         batch_polylines_mask = np.stack(ret_polylines_mask, axis=0)  # (K, N)
 
         # Select the top-k closest polylines per center agent using world-frame distances.
@@ -989,14 +987,12 @@ class BaseDataset(Dataset, ABC):
                 angle=center_heading,
             )[:, 0, :]  # (C, 2)
             pos_of_map_centers = center_objects[:, 0:2] + center_offset_rot  # (C, 2)
-            dist = np.linalg.norm(
-                pos_of_map_centers[:, None, :] - polyline_center[None, :, :], axis=-1
-            )  # (C, K)
+            dist = np.linalg.norm(pos_of_map_centers[:, None, :] - polyline_center[None, :, :], axis=-1)  # (C, K)
             topk_idxs = np.argsort(dist, axis=1)[:, :num_of_src_polylines]  # (C, R)
-            map_polylines = batch_polylines[topk_idxs]       # (C, R, N, Dp)
+            map_polylines = batch_polylines[topk_idxs]  # (C, R, N, Dp)
             map_polylines_mask = batch_polylines_mask[topk_idxs]  # (C, R, N)
         else:
-            map_polylines = batch_polylines[None].repeat(num_center_objects, 0)       # (C, K, N, Dp)
+            map_polylines = batch_polylines[None].repeat(num_center_objects, 0)  # (C, K, N, Dp)
             map_polylines_mask = batch_polylines_mask[None].repeat(num_center_objects, 0)  # (C, K, N)
             size_to_pad = num_of_src_polylines - map_polylines.shape[1]
             map_polylines = np.pad(map_polylines, ((0, 0), (0, size_to_pad), (0, 0), (0, 0)))
@@ -1103,7 +1099,6 @@ class BaseDataset(Dataset, ABC):
             output (list[dict[str, Any]]): list of dictionaries containing scenario information for each scenario in
                 the batch, with added scenario characterization information.
         """
-
         # TODO: Add SafeShift features here.
         # Add the trajectory difficulty
         data_utils.get_kalman_difficulty(output)
