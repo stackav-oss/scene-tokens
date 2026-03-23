@@ -41,6 +41,42 @@ def build_mlps(c_in, mlp_channels=None, ret_before_act=False, without_norm=False
     return nn.Sequential(*layers)
 
 
+def knn_batch(x_pos_stack, batch_offsets, k):
+    """Pure-PyTorch KNN within each batch item.
+
+    Replaces the original CUDA ``knn_batch_mlogk`` kernel.  For each valid token finds its K spatially nearest
+    neighbours (by 2-D Euclidean distance) within the same batch item and returns their absolute indices into the flat
+    ``x_pos_stack`` array — matching the index contract expected by ``MultiheadAttentionLocal``.
+
+    Args:
+        x_pos_stack (M, 3): positions of the M valid tokens, flat across batch
+        batch_offsets (B+1,): cumulative token counts per batch item
+        k (int): number of neighbours to return (including the token itself)
+
+    Returns:
+        index_pair (M, K): long tensor of absolute indices; columns beyond the batch-item size are filled with -1
+        (masked in attention)
+    """
+    M = x_pos_stack.shape[0]
+    B = batch_offsets.shape[0] - 1
+    device = x_pos_stack.device
+    index_pair = torch.full((M, k), -1, dtype=torch.long, device=device)
+
+    for i in range(B):
+        start = int(batch_offsets[i].item())
+        end = int(batch_offsets[i + 1].item())
+        if end <= start:
+            continue
+        pos_i = x_pos_stack[start:end, :2]          # (n_i, 2)
+        n_i = end - start
+        k_actual = min(k, n_i)
+        dists = torch.cdist(pos_i, pos_i)            # (n_i, n_i)
+        _, nn_local = dists.topk(k_actual, dim=-1, largest=False)  # (n_i, k_actual)
+        index_pair[start:end, :k_actual] = nn_local + start        # absolute indices
+
+    return index_pair
+
+
 class PointNetPolylineEncoder(nn.Module):
     """PointNet-based polyline encoder used in the MTR context encoder."""
 
