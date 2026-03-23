@@ -3,9 +3,9 @@ defaults:
 
 _target_: scenetokens.models.mtr.MTR
 
-# Hyperparameters mirrored from: https://github.com/vita-epfl/UniTraj/blob/main/unitraj/configs/method/MTR.yaml
+# Hyperparameters mirrored from: https://github.com/cmubig/SafeShift/blob/master/tools/cfgs/mini/mtr%2B20p_64_b.yaml
 config:
-  model_name: mtr
+  model_name: mtr-mini
   base_tags: lr-${model.config.optimizer.lr}_batch-size-${model.config.train_batch_size}
   extra_tags: ${model.config.base_tags}
 
@@ -19,46 +19,44 @@ config:
   context_encoder:
     # Agent polyline encoder
     num_input_attr_agent: ${model.config.agents_input_size}   # 29 (mask appended internally)
-    num_channel_in_mlp_agent: 256
+    num_channel_in_mlp_agent: 128
     num_layer_in_mlp_agent: 3
 
     # Map polyline encoder
     num_input_attr_map: ${model.config.map_input_size}        # 29
-    num_channel_in_mlp_map: 64
+    num_channel_in_mlp_map: 32
     num_layer_in_mlp_map: 5
     num_layer_in_pre_mlp_map: 3
 
     # Global attention
-    d_model: 256
-    num_attn_layers: 6
-    num_attn_head: 8
+    d_model: 96
+    num_attn_layers: 4
+    num_attn_head: 2
     dropout_of_attn: 0.1
 
     # Local attention (original local KNN requires CUDA extensions)
     use_local_attn: false
-    num_of_attn_neighbors: 7
+    num_of_attn_neighbors: 16
 
   # Motion Decoder
-  # NOTE: d_model, num_base_map_polylines, num_waypoint_map_polylines reduced to fit memory constraints. These reduce
-  # the model from 65M -> 27M parameters and need about 22GB of memory.
   motion_decoder:
-    d_model: 256 # 512
-    map_d_model: 256         # separate (smaller) projection for map cross-attention
-    num_attn_head: 8
+    d_model: 96
+    map_d_model: 64         # separate (smaller) projection for map cross-attention
+    num_attn_head: 2
     dropout_of_attn: 0.1
 
     object_type: ["VEHICLE", "PEDESTRIAN", "CYCLIST"] # object types to predict for, used for filtering input agents and in the decoder's output representation
 
     num_future_frames: ${model.config.future_len} # number of future frames to predict (e.g. 30 for 6s prediction with 0.2s timesteps)
     num_motion_modes: ${model.config.num_modes} # final number of output modes (after NMS)
-    num_decoder_layers: 6
+    num_decoder_layers: 5
 
     # NMS threshold for deduplicating near-identical modes (metres)
     nms_dist_thresh: 2.5
 
     # Dynamic map collection: number of polylines from base region + waypoint region
-    num_base_map_polylines: 64 # 256
-    num_waypoint_map_polylines: 48 # 128
+    num_base_map_polylines: 64
+    num_waypoint_map_polylines: 48
 
     # Fixed map region offset relative to the ego-agent (metres, [x_forward, y_lateral])
     center_offset_of_map: [30.0, 0.0]
@@ -90,6 +88,14 @@ config:
     _target_: torch.optim.lr_scheduler.LambdaLR
     _partial_: true
   learning_rate_sched: [22, 24, 26, 28]  # epochs at which lr is multiplied by lr_decay
-  lr: 0.0001
+  lr: 0.001
   lr_decay: 0.5
   lr_clip: 0.000001
+
+  grad_clip_norm: 1000.0
+  max_num_agents: 64
+  max_num_roads: 512
+  manually_split_lane: True
+  point_sampled_interval: 1
+  num_points_each_polyline: 20
+  vector_break_dist_thresh: 1.0
