@@ -54,7 +54,7 @@ exp_name: ${paths.tag}_${model.config.model_name}${sweep_type}
 
 # sample selection
 # either of 'all', 'random_drop', 'token_random_drop', 'simple_token_jaccard_drop', 'gumbel_token_jaccard_drop',
-# 'kmeans_random_drop', 'simple_kmeans_cosine_drop', simple_kmeans_cosine_drop'
+# 'kmeans_random_drop'
 sample_selection_strategy: all
 sample_selection_path: null # need to specify the path where the sample selection file is saved to
 percentage: 0.45

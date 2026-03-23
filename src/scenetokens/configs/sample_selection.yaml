@@ -17,8 +17,6 @@ selection_strategies:
   - gumbel_token_jaccard_drop
   - gumbel_token_hamming_drop
   - kmeans_random_drop
-  - simple_kmeans_cosine_drop
-  - gumbel_kmeans_cosine_drop
 selection_strategy: null
 percentages_to_keep:
   - 0.45
