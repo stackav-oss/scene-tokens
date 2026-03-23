@@ -969,8 +969,12 @@ class BaseDataset(Dataset, ABC):
                 ret_polylines.append(cur)
                 ret_polylines_mask.append(cur_mask)
 
-        batch_polylines = np.stack(ret_polylines, axis=0)  # (K, N, Dp)
-        batch_polylines_mask = np.stack(ret_polylines_mask, axis=0)  # (K, N)
+        if ret_polylines:
+            batch_polylines = np.stack(ret_polylines, axis=0)  # (K, N, Dp)
+            batch_polylines_mask = np.stack(ret_polylines_mask, axis=0)  # (K, N)
+        else:
+            batch_polylines = np.zeros((0, num_points_each_polyline, point_dim), dtype=np.float32)
+            batch_polylines_mask = np.zeros((0, num_points_each_polyline), dtype=np.int32)
 
         # Select the top-k closest polylines per center agent using world-frame distances.
         center_offset = np.array(self.config.center_offset_of_map, dtype=np.float32)  # (2,)
@@ -1011,9 +1015,9 @@ class BaseDataset(Dataset, ABC):
         ).reshape(num_center_objects, num_roads, num_pts, 2)
 
         # Append previous-point XYZ features and zero out masked entries.
-        xy_pos_pre = np.roll(map_polylines[:, :, :, 0:3], shift=1, axis=-2)
-        xy_pos_pre[:, :, 0, :] = xy_pos_pre[:, :, 1, :]
-        map_polylines = np.concatenate((map_polylines, xy_pos_pre), axis=-1)  # (C, R, N, Dp+3)
+        xy_pos_roll = np.roll(map_polylines[:, :, :, 0:3], shift=1, axis=-2)
+        xy_pos_roll[:, :, 0, :] = xy_pos_roll[:, :, 1, :]
+        map_polylines = np.concatenate((map_polylines, xy_pos_roll), axis=-1)  # (C, R, N, Dp+3)
         map_polylines[map_polylines_mask == 0] = 0
 
         # Compute polyline centers in agent-centric coordinates.
