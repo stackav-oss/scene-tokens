@@ -40,7 +40,7 @@ def build_mlps(c_in, mlp_channels=None, ret_before_act=False, without_norm=False
 
     return nn.Sequential(*layers)
 
-
+@torch.no_grad()
 def knn_batch(x_pos_stack, batch_offsets, k):
     """Pure-PyTorch KNN within each batch item.
 
@@ -68,8 +68,7 @@ def knn_batch(x_pos_stack, batch_offsets, k):
         if end <= start:
             continue
         pos_i = x_pos_stack[start:end, :2]          # (n_i, 2)
-        n_i = end - start
-        k_actual = min(k, n_i)
+        k_actual = min(k, end - start)
         dists = torch.cdist(pos_i, pos_i)            # (n_i, n_i)
         _, nn_local = dists.topk(k_actual, dim=-1, largest=False)  # (n_i, k_actual)
         index_pair[start:end, :k_actual] = nn_local + start        # absolute indices
