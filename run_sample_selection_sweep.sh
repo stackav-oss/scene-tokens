@@ -14,7 +14,7 @@ Options:
   -d <devices>      Devices (e.g. 0 or 0,1)
                     (default: 0)
   -s <strategies>   Strategy/strategies, comma-separated
-                    (default depends on -t: kmeans→kmeans_drop, random→random_drop, st/causalst/safest→all token strategies)
+                    (default depends on -t: kmeans→kmeans_random_drop, random→random_drop, st/causalst/safest→all token strategies)
                     Custom strategies must be valid for the selected type.
   -p <percentages>  Percentage(s), comma-separated
                     (default: 0.45, 0.55, 0.65, 0.75, 0.85, 0.95)
@@ -62,7 +62,7 @@ DEFAULT_MODELS=(
 )
 DEFAULT_DEVICES="0"
 KMEANS_STRATEGIES=(
-    kmeans_drop
+    kmeans_random_drop
 )
 RANDOM_STRATEGIES=(
     random_drop
