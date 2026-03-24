@@ -34,7 +34,7 @@ Examples:
   $0 -m wayformer,scenetransformer -d 0,1
 
   # Custom strategies
-  $0 -s token_random_drop,gumbel_token_hamming_drop,kmeans_random_drop,simple_kmeans_cosine_drop,gumbel_kmeans_cosine_drop
+  $0 -s token_random_drop,gumbel_token_hamming_drop,kmeans_random_drop
 
   # Custom percentages
   $0 -p 0.5,0.7,0.9
