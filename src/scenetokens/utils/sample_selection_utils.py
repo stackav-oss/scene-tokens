@@ -21,12 +21,58 @@ from scenetokens.utils.model_analysis_utils import (
 )
 
 
+# Exponent used in Gumbel sorting for zero-weight samples — large enough to strongly deprioritize
+# them without completely zeroing out their probability via uniform**inf.
+_GUMBEL_LARGE_EXPONENT: float = 8.0
+
+
+def _aggregate_selected_samples(selected_samples: dict[Any, Any]) -> None:
+    """Helper function to aggregate the sample IDs to keep and drop across groups (tokens or clusters) into a single
+    list of samples to keep and drop. Mutates the input dictionary in place.
+
+    Args:
+        selected_samples: a dictionary containing the sample selection results per group.
+    """
+    keep = []
+    drop = []
+    for samples in selected_samples.values():
+        keep += samples["keep"]
+        drop += samples["drop"]
+    selected_samples["keep"] = keep
+    selected_samples["drop"] = drop
+    selected_samples["num_to_keep"] = len(keep)
+    selected_samples["num_to_drop"] = len(drop)
+
+
+def _make_group_result(keep: list[Any], drop: list[Any]) -> dict[str, Any]:
+    """Constructs a per-group selection result dict."""
+    return {"keep": keep, "num_to_keep": len(keep), "drop": drop, "num_to_drop": len(drop)}
+
+
+def _compute_proportional_number_to_drop(
+    total_number_to_drop: int, percentage: float, min_percentage: float, total_valid_percentage: float
+) -> int:
+    """Computes the proportional number of samples to drop for a group.
+
+    Args:
+        total_number_to_drop: the total number of samples to drop across all groups.
+        percentage: the percentage of samples in the group.
+        min_percentage: the min percentage threshold for a group to be considered valid for dropping samples.
+        total_valid_percentage: the total percentage of samples across all valid groups.
+
+    Returns:
+        0 if percentage does not exceed min_percentage, favoring underrepresented groups by flooring rather than
+        ceiling the per-group drop count.
+    """
+    return int(percentage * total_number_to_drop / total_valid_percentage) if percentage > min_percentage else 0
+
+
 def random_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput]) -> dict[str, Any]:
     """A sample selection strategy that randomly keeps a specified percentage of all scenarios.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
         selected_samples (dict[str, Any]): a dictionary containing the IDs of the samples (scenarios) to keep or drop
@@ -48,20 +94,20 @@ def random_selection_per_token(config: DictConfig, model_outputs: dict[str, outp
     more than a desired minimum percentage.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
         selected_samples (dict[str, Any]): a dictionary containing the IDs of the samples (scenarios) to keep or drop
             for training.
     """
     scenario_ids, scenario_classes, _, _ = get_scenario_classes_best_mode(model_outputs)
-    num_scenarios, num_modes = scenario_classes.shape
-    classes_dict = {"scenario_id": scenario_ids, "scenario_class": scenario_classes[:, 0]}
-    classes_df = pd.DataFrame(classes_dict)
+    num_scenarios, _ = scenario_classes.shape
+    classes_df = pd.DataFrame({"scenario_id": scenario_ids, "scenario_class": scenario_classes[:, 0]})
 
     percentage_per_class = (classes_df["scenario_class"].value_counts() / num_scenarios).to_frame(name="percentage")
-    # NOTE: we drop less than num_scenarios_to_drop, because we don't ceil the number of samples to keep per class, to
+
+    # NOTE: we drop less than num_scenarios_to_drop, because we don't ceil the number of samples to keep per class to
     # favor tokens that are heavily underrepresented.
     num_scenarios_to_drop = int((1 - config.percentage_to_keep) * num_scenarios)
 
@@ -74,67 +120,45 @@ def random_selection_per_token(config: DictConfig, model_outputs: dict[str, outp
         scenario_class = row.name
         scenario_ids_in_class = classes_df["scenario_id"][classes_df["scenario_class"] == scenario_class].tolist()
 
-        num_to_drop = (
-            int(row.percentage * num_scenarios_to_drop / total_valid_percentage)
-            if row.percentage > min_percentage_per_class
-            else 0
+        num_to_drop = _compute_proportional_number_to_drop(
+            num_scenarios_to_drop, row.percentage, min_percentage_per_class, total_valid_percentage
         )
 
         random.seed(config.seed)
         random.shuffle(scenario_ids_in_class)
         if num_to_drop > 0:
-            drop = scenario_ids_in_class[:num_to_drop]
-            keep = scenario_ids_in_class[num_to_drop:]
-            selected_samples[scenario_class] = {
-                "keep": keep,
-                "num_to_keep": len(keep),
-                "drop": drop,
-                "num_to_drop": len(drop),
-            }
+            selected_samples[scenario_class] = _make_group_result(
+                keep=scenario_ids_in_class[num_to_drop:],
+                drop=scenario_ids_in_class[:num_to_drop],
+            )
         else:
-            selected_samples[scenario_class] = {
-                "keep": scenario_ids_in_class,
-                "num_to_keep": len(scenario_ids_in_class),
-                "drop": [],
-                "num_to_drop": 0,
-            }
+            selected_samples[scenario_class] = _make_group_result(keep=scenario_ids_in_class, drop=[])
 
-    # Get combined list
-    keep = []
-    drop = []
-    for samples in selected_samples.values():
-        keep += samples["keep"]
-        drop += samples["drop"]
-    selected_samples["keep"] = keep
-    selected_samples["drop"] = drop
-    selected_samples["num_to_keep"] = len(selected_samples["keep"])
-    selected_samples["num_to_drop"] = len(selected_samples["drop"])
+    _aggregate_selected_samples(selected_samples)
     return selected_samples
 
 
 def weighted_sorting(
     samples: NDArray[Any], weights: NDArray[np.float64], *, sort_ascending: bool = True
-) -> tuple[NDArray[np.int32], ...]:
+) -> tuple[NDArray[Any], NDArray[np.float64]]:
     """Sorts the samples of an array using based on their weight values.
 
     Args:
-        samples (NDArray[Any]): a numpy array containing samples.
-        weights (NDArray[np.float64]): weights values in [0.0, 1.0] corresponding to each sample.
-        sort_ascending (bool): if 'True' it sorts the samples in ascending order, based on the key values.
+        samples: a numpy array containing samples.
+        weights: weights values in [0.0, 1.0] corresponding to each sample.
+        sort_ascending: if 'True' it sorts the samples in ascending order so the lowest weight values appear first.
 
     Returns:
-        samples (NDArray[np.int32]): the sorted samples.
-        weights (NDArray[np.int32]): the sorted weights.
+        samples (NDArray[Any]): the sorted samples.
+        weights (NDArray[np.float64]): the sorted weights.
     """
-    num_samples = len(samples)
-    if num_samples != len(weights):
-        error_messsage = f"Size of samples {num_samples} and weights {len(weights)} must be the same."
-        raise ValueError(error_messsage)
+    if len(samples) != len(weights):
+        error_message = f"Size of samples {len(samples)} and weights {len(weights)} must be the same."
+        raise ValueError(error_message)
 
-    # Sort the sample indices based on the key values. If 'sort_ascending=True' higher priority values will show first.
+    # Sort the sample indices based on the key values. When sort_ascending=True, the lowest weight values appear first.
     sorted_indices = np.argsort(weights) if sort_ascending else np.argsort(weights)[::-1]
 
-    # Return the samples and weights sorted
     return samples[sorted_indices], weights[sorted_indices]
 
 
@@ -144,29 +168,28 @@ def weighted_sorting_gumbel(
     generator: Generator,
     *,
     sort_ascending: bool = True,
-    large_exponent: np.float64 = np.inf,
-) -> tuple[NDArray[np.int32], ...]:
+    large_exponent: float = np.inf,
+) -> tuple[NDArray[Any], NDArray[np.float64]]:
     """Sorts the samples of an array using the Gumbel Max weighted sampling trick:
         https://timvieira.github.io/blog/post/2014/07/31/gumbel-max-trick/. Weights are assumed to be in [0, 1].
 
     Args:
-        samples (NDArray[Any]): a numpy array containing samples.
-        weights (NDArray[np.float64]): weights values in [0.0, 1.0] corresponding to each sample.
-        generator (Generator): a random generator instance.
-        sort_ascending (bool): if 'True' it sorts the samples in ascending order, based on the key values.
-        large_exponent (np.float64): exponent value to use for samples whose weights are zero.
+        samples: a numpy array containing samples.
+        weights: weights values in [0.0, 1.0] corresponding to each sample.
+        generator: a random generator instance.
+        sort_ascending: if 'True' it sorts the samples in ascending order, based on the key values.
+        large_exponent: exponent value to use for samples whose weights are zero.
 
     Returns:
-        samples (NDArray[np.int32]): the sorted samples.
-        weights (NDArray[np.int32]): the sorted weights.
+        samples (NDArray[Any]): the sorted samples.
+        weights (NDArray[np.float64]): the sorted weights.
     """
-    num_samples = len(samples)
-    if num_samples != len(weights):
-        error_messsage = f"Size of samples {num_samples} and weights {len(weights)} must be the same."
-        raise ValueError(error_messsage)
+    if len(samples) != len(weights):
+        error_message = f"Size of samples {len(samples)} and weights {len(weights)} must be the same."
+        raise ValueError(error_message)
 
     # Generate random numbers in [0, 1]
-    uniform = generator.random(num_samples)
+    uniform = generator.random(len(samples))
 
     # Calculate the exponent term (1 / W_i), if the weight of a sample is low its exponent to will be high.
     exponent = np.where(weights > 0.0, 1.0 / weights, large_exponent)
@@ -178,25 +201,45 @@ def weighted_sorting_gumbel(
     # Sort the sample indices based on the key values. If 'sort_ascending=False' higher priority values will show first.
     sorted_indices = np.argsort(priority) if sort_ascending else np.argsort(priority)[::-1]
 
-    # Return the samples and weights sorted
     return samples[sorted_indices], weights[sorted_indices]
+
+
+def _sort_ids_by_score(
+    ids: NDArray[Any],
+    scores: NDArray[np.float64],
+    sorting_strategy: str,
+    seed: int,
+) -> tuple[NDArray[Any], NDArray[np.float64]]:
+    """Sorts IDs by score so that the lowest-priority candidates (to drop) appear first.
+
+    For 'gumbel': uses (1 - scores) with the Gumbel Max trick so high-scoring (typical) samples are softly
+    deprioritized. For other strategies: sorts by raw scores descending so the highest-scoring IDs appear last.
+    """
+    if sorting_strategy == "gumbel":
+        generator = default_rng(seed)
+        return weighted_sorting_gumbel(
+            ids, 1.0 - scores, generator, sort_ascending=True, large_exponent=_GUMBEL_LARGE_EXPONENT
+        )
+    return weighted_sorting(ids, scores, sort_ascending=False)
 
 
 def alignment_based_selection_per_token(
     config: DictConfig, model_outputs: dict[str, output.ModelOutput]
 ) -> dict[str, Any]:
-    """A sample selection strategy that randomly keeps a specified percentage of the scenarios for each class that has
-    more than a desired minimum percentage.
+    """A sample selection strategy that keeps a specified percentage of the scenarios for each tokenization group,
+    prioritizing retention of samples that are least aligned to the group mode. Scenarios with high alignment
+    (typical/redundant w.r.t. the group) are dropped first. Supports both Gumbel-weighted (stochastic) and simple
+    deterministic sorting strategies.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
         dict[str, Any]: a dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
     """
     num_scenarios = len(model_outputs)
-    # Get the groups by token and compute the each group's mode
+    # Get the groups by token and compute each group's mode
     tokenization_groups, group_scenario_ids = get_tokenization_groups(config, model_outputs)
     group_modes = get_group_modes(tokenization_groups)
 
@@ -218,56 +261,23 @@ def alignment_based_selection_per_token(
             continue
         group_percentage = group_percentages[base_token]
         scenario_ids = group_scenario_ids[base_token].squeeze(axis=1)
-        num_to_drop = (
-            int(group_percentage * num_scenarios_to_drop / total_valid_percentage)
-            if group_percentage > min_percentage_per_class
-            else 0
+        num_to_drop = _compute_proportional_number_to_drop(
+            num_scenarios_to_drop, group_percentage, min_percentage_per_class, total_valid_percentage
         )
 
         if num_to_drop > 0:
-            # generator instance
-            generator = default_rng(config.seed)
-            scores = compute_alignment_scores(group_modes[base_token], token_group, config.alignment_strategy)
-            # Get the scenario IDs (pseudo-randomly) sorted by their score, prioritizing samples with lower alignment to
-            # the target value, i.e., samples that are potentially rare w.r.t their group.
-            if config.sorting_strategy == "gumbel":
-                # Highly aligned instances will be given a score of (1-score) to deprioritize them for selection, but we
-                # don't want to be too harsh so as to completely zero-out-them (large_exponent=8).
-                # Since we want to drop the samples at the beginning of the sorted list and we're using the inverse of
-                # the score, we sort in ascending order.
-                sorted_scenario_ids, _ = weighted_sorting_gumbel(
-                    scenario_ids, 1.0 - scores, generator, sort_ascending=True, large_exponent=8.0
-                )
-            else:
-                # Since we want to drop the samples at the beginning of the sorted list and we're using the scores
-                # directly, we sort in descending order.
-                sorted_scenario_ids, _ = weighted_sorting(scenario_ids, scores, sort_ascending=False)
-
-            drop = sorted_scenario_ids[:num_to_drop].tolist()
-            keep = sorted_scenario_ids[num_to_drop:].tolist()
-            selected_samples[base_token] = {
-                "keep": keep,
-                "num_to_keep": len(keep),
-                "drop": drop,
-                "num_to_drop": len(drop),
-            }
+            scores = compute_alignment_scores(
+                group_modes[base_token].tolist(), token_group.astype(np.int32), config.alignment_strategy
+            )
+            sorted_scenario_ids, _ = _sort_ids_by_score(scenario_ids, scores, config.sorting_strategy, config.seed)
+            selected_samples[base_token] = _make_group_result(
+                keep=sorted_scenario_ids[num_to_drop:].tolist(),
+                drop=sorted_scenario_ids[:num_to_drop].tolist(),
+            )
         else:
-            selected_samples[base_token] = {
-                "keep": scenario_ids.tolist(),
-                "num_to_keep": len(scenario_ids),
-                "drop": [],
-                "num_to_drop": 0,
-            }
+            selected_samples[base_token] = _make_group_result(keep=scenario_ids.tolist(), drop=[])
 
-    keep = []
-    drop = []
-    for samples in selected_samples.values():
-        keep += samples["keep"]
-        drop += samples["drop"]
-    selected_samples["keep"] = keep
-    selected_samples["drop"] = drop
-    selected_samples["num_to_keep"] = len(selected_samples["keep"])
-    selected_samples["num_to_drop"] = len(selected_samples["drop"])
+    _aggregate_selected_samples(selected_samples)
     return selected_samples
 
 
@@ -276,9 +286,9 @@ def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mod
     dictionary containing the a set of training scenarios to keep and to drop.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
-        output_path (Path): output path where visualization will be saved to.
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
+        output_path: output path where visualization will be saved to.
     """
     selection_strategy = SampleSelection(config.selection_strategy)
     match selection_strategy:
