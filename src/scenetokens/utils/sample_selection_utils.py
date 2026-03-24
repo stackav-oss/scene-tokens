@@ -26,15 +26,12 @@ from scenetokens.utils.model_analysis_utils import (
 _GUMBEL_LARGE_EXPONENT: float = 8.0
 
 
-def _aggregate_selected_samples(selected_samples: dict[Any, Any]) -> dict[str, Any]:
+def _aggregate_selected_samples(selected_samples: dict[Any, Any]) -> None:
     """Helper function to aggregate the sample IDs to keep and drop across groups (tokens or clusters) into a single
-    list of samples to keep and drop.
+    list of samples to keep and drop. Mutates the input dictionary in place.
 
     Args:
-        selected_samples (dict[Any, Any]): a dictionary containing the sample selection results per group.
-
-    Returns:
-        selected_samples (dict[str, Any]): a dictionary containing the aggregated sample selection results.
+        selected_samples: a dictionary containing the sample selection results per group.
     """
     keep = []
     drop = []
@@ -43,9 +40,8 @@ def _aggregate_selected_samples(selected_samples: dict[Any, Any]) -> dict[str, A
         drop += samples["drop"]
     selected_samples["keep"] = keep
     selected_samples["drop"] = drop
-    selected_samples["num_to_keep"] = len(selected_samples["keep"])
-    selected_samples["num_to_drop"] = len(selected_samples["drop"])
-    return selected_samples
+    selected_samples["num_to_keep"] = len(keep)
+    selected_samples["num_to_drop"] = len(drop)
 
 
 def _make_group_result(keep: list[Any], drop: list[Any]) -> dict[str, Any]:
@@ -59,10 +55,10 @@ def _compute_proportional_number_to_drop(
     """Computes the proportional number of samples to drop for a group.
 
     Args:
-        total_number_to_drop (int): the total number of samples to drop across all groups.
-        percentage (float): the percentage of samples in the group.
-        min_percentage (float): the min percentage threshold for a group to be considered valid for dropping samples.
-        total_valid_percentage (float): the total percentage of samples across all valid groups.
+        total_number_to_drop: the total number of samples to drop across all groups.
+        percentage: the percentage of samples in the group.
+        min_percentage: the min percentage threshold for a group to be considered valid for dropping samples.
+        total_valid_percentage: the total percentage of samples across all valid groups.
 
     Returns:
         0 if percentage does not exceed min_percentage, favoring underrepresented groups by flooring rather than
@@ -75,8 +71,8 @@ def random_selection(config: DictConfig, model_outputs: dict[str, output.ModelOu
     """A sample selection strategy that randomly keeps a specified percentage of all scenarios.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
         selected_samples (dict[str, Any]): a dictionary containing the IDs of the samples (scenarios) to keep or drop
@@ -98,8 +94,8 @@ def random_selection_per_token(config: DictConfig, model_outputs: dict[str, outp
     more than a desired minimum percentage.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
         selected_samples (dict[str, Any]): a dictionary containing the IDs of the samples (scenarios) to keep or drop
@@ -138,7 +134,8 @@ def random_selection_per_token(config: DictConfig, model_outputs: dict[str, outp
         else:
             selected_samples[scenario_class] = _make_group_result(keep=scenario_ids_in_class, drop=[])
 
-    return _aggregate_selected_samples(selected_samples)
+    _aggregate_selected_samples(selected_samples)
+    return selected_samples
 
 
 def weighted_sorting(
@@ -147,10 +144,9 @@ def weighted_sorting(
     """Sorts the samples of an array using based on their weight values.
 
     Args:
-        samples (NDArray[Any]): a numpy array containing samples.
-        weights (NDArray[np.float64]): weights values in [0.0, 1.0] corresponding to each sample.
-        sort_ascending (bool): if 'True' it sorts the samples in ascending order so the lowest weight values
-            appear first.
+        samples: a numpy array containing samples.
+        weights: weights values in [0.0, 1.0] corresponding to each sample.
+        sort_ascending: if 'True' it sorts the samples in ascending order so the lowest weight values appear first.
 
     Returns:
         samples (NDArray[Any]): the sorted samples.
@@ -178,11 +174,11 @@ def weighted_sorting_gumbel(
         https://timvieira.github.io/blog/post/2014/07/31/gumbel-max-trick/. Weights are assumed to be in [0, 1].
 
     Args:
-        samples (NDArray[Any]): a numpy array containing samples.
-        weights (NDArray[np.float64]): weights values in [0.0, 1.0] corresponding to each sample.
-        generator (Generator): a random generator instance.
-        sort_ascending (bool): if 'True' it sorts the samples in ascending order, based on the key values.
-        large_exponent (np.float64): exponent value to use for samples whose weights are zero.
+        samples: a numpy array containing samples.
+        weights: weights values in [0.0, 1.0] corresponding to each sample.
+        generator: a random generator instance.
+        sort_ascending: if 'True' it sorts the samples in ascending order, based on the key values.
+        large_exponent: exponent value to use for samples whose weights are zero.
 
     Returns:
         samples (NDArray[Any]): the sorted samples.
@@ -236,8 +232,8 @@ def alignment_based_selection_per_token(
     deterministic sorting strategies.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
         dict[str, Any]: a dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
@@ -281,7 +277,8 @@ def alignment_based_selection_per_token(
         else:
             selected_samples[base_token] = _make_group_result(keep=scenario_ids.tolist(), drop=[])
 
-    return _aggregate_selected_samples(selected_samples)
+    _aggregate_selected_samples(selected_samples)
+    return selected_samples
 
 
 def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:
@@ -289,9 +286,9 @@ def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mod
     dictionary containing the a set of training scenarios to keep and to drop.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters.
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
-        output_path (Path): output path where visualization will be saved to.
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
+        output_path: output path where visualization will be saved to.
     """
     selection_strategy = SampleSelection(config.selection_strategy)
     match selection_strategy:
