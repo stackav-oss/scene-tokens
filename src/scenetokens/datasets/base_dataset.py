@@ -29,7 +29,7 @@ from omegaconf import DictConfig
 from torch.utils.data import Dataset
 
 from scenetokens.utils import data_utils, pylogger
-from scenetokens.utils.constants import BIG_EPSILON, DataSplits, SampleSelection
+from scenetokens.utils.constants import LARGE_FLOAT, DataSplits, SampleSelection
 
 
 _LOGGER = pylogger.get_pylogger(__name__)
@@ -638,7 +638,7 @@ class BaseDataset(Dataset, ABC):
         max_num_agents = self.config.max_num_agents
         # shape: (C, M)
         agent_dists_to_center_points = np.linalg.norm(agent_histories[..., -1, 0:2], axis=-1)
-        agent_dists_to_center_points[agent_histories_mask[..., -1] == 0] = BIG_EPSILON
+        agent_dists_to_center_points[agent_histories_mask[..., -1] == 0] = LARGE_FLOAT
         # shape: (C, max_num_agents, 1, 1)
         topk_idxs = np.argsort(agent_dists_to_center_points, axis=-1)[:, :max_num_agents, None, None]
 
@@ -862,7 +862,7 @@ class BaseDataset(Dataset, ABC):
         mask_sum = polylines_mask.sum(axis=-1)
         num_valid_points = np.clip(mask_sum.astype(float), a_min=1.0, a_max=None)
         polyline_centered_dist = np.linalg.norm(polyline_centered, axis=-1).sum(-1) / num_valid_points
-        polyline_centered_dist[mask_sum == 0] = BIG_EPSILON
+        polyline_centered_dist[mask_sum == 0] = LARGE_FLOAT
 
         # Get max_num_roads that are closest to the ego
         # topk_idxs shape: (C, N, 1, 1)

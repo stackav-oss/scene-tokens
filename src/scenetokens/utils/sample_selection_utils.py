@@ -346,7 +346,7 @@ def random_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
     valid_percentages = percentage_per_cluster[percentage_per_cluster["percentage"] > min_percentage_per_class]
     total_valid_percentage = valid_percentages["percentage"].sum()
 
-    selected_samples: dict[Any, Any] = {}
+    selected_samples = {}
     for _, row in percentage_per_cluster.iterrows():
         cluster_id = row.name
         cluster_scenario_ids = clusters_df["scenario_id"][clusters_df["cluster"] == cluster_id].tolist()
@@ -402,7 +402,7 @@ def cosine_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
 
     num_scenarios_to_drop = int((1 - config.percentage_to_keep) * num_scenarios)
 
-    selected_samples: dict[Any, Any] = {}
+    selected_samples = {}
     for cluster_id in unique_clusters:
         cluster_mask = cluster_labels == cluster_id
         cluster_scenario_ids = scenario_ids_arr[cluster_mask]
