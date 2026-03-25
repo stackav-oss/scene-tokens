@@ -14,10 +14,11 @@ Options:
   -d <devices>      Devices (e.g. 0 or 0,1)
                     (default: 0)
   -s <strategies>   Strategy/strategies, comma-separated
-                    (default: random_drop, token_random_drop, simple_token_jaccard_drop, gumbel_token_jaccard_drop, simple_token_hamming_drop, gumbel_token_hamming_drop)
+                    (default depends on -t: kmeans→kmeans_random_drop, random→random_drop, st/causalst/safest→all token strategies)
+                    Custom strategies must be valid for the selected type.
   -p <percentages>  Percentage(s), comma-separated
                     (default: 0.45, 0.55, 0.65, 0.75, 0.85, 0.95)
-  -t <type>         Type of sample selection strategy (either of "st", "causalst", "safest")
+  -t <type>         Type of sample selection strategy (one of "st", "causalst", "safest", "kmeans", "random")
                     (default: "st")
   -n                Dry run (print commands, do not execute)
   -h                Show this help message
@@ -33,7 +34,7 @@ Examples:
   $0 -m wayformer,scenetransformer -d 0,1
 
   # Custom strategies
-  $0 -s token_random_drop,gumbel_token_hamming_drop
+  $0 -s token_random_drop,gumbel_token_hamming_drop,kmeans_random_drop
 
   # Custom percentages
   $0 -p 0.5,0.7,0.9
@@ -60,13 +61,18 @@ DEFAULT_MODELS=(
     mtr
 )
 DEFAULT_DEVICES="0"
-DEFAULT_STRATEGIES=(
-  random_drop
-  token_random_drop
-  simple_token_jaccard_drop
-  simple_token_hamming_drop
-  gumbel_token_jaccard_drop
-  gumbel_token_hamming_drop
+KMEANS_STRATEGIES=(
+    kmeans_random_drop
+)
+RANDOM_STRATEGIES=(
+    random_drop
+)
+TOKEN_STRATEGIES=(
+    token_random_drop
+    simple_token_jaccard_drop
+    simple_token_hamming_drop
+    gumbel_token_jaccard_drop
+    gumbel_token_hamming_drop
 )
 DEFAULT_PERCENTAGES=(0.45 0.55 0.65 0.75 0.85 0.95)
 DEFAULT_SAMPLE_SELECTION_TYPE="st"
@@ -102,17 +108,37 @@ done
 # Apply defaults if empty
 ############################
 [[ ${#models[@]} -eq 0 ]] && models=("${DEFAULT_MODELS[@]}")
-[[ ${#strategies[@]} -eq 0 ]] && strategies=("${DEFAULT_STRATEGIES[@]}")
 [[ ${#percentages[@]} -eq 0 ]] && percentages=("${DEFAULT_PERCENTAGES[@]}")
+
 if [[ "$selection_type" == "st" ]]; then
     selection_path="./meta/selection_strategies/scenetokens"
+    valid_strategies=("${TOKEN_STRATEGIES[@]}")
 elif [[ "$selection_type" == "causalst" ]]; then
     selection_path="./meta/selection_strategies/causal-scenetokens"
+    valid_strategies=("${TOKEN_STRATEGIES[@]}")
 elif [[ "$selection_type" == "safest" ]]; then
     selection_path="./meta/selection_strategies/safe-scenetokens"
+    valid_strategies=("${TOKEN_STRATEGIES[@]}")
+elif [[ "$selection_type" == "kmeans" ]]; then
+    selection_path="./meta/selection_strategies/kmeans"
+    valid_strategies=("${KMEANS_STRATEGIES[@]}")
+elif [[ "$selection_type" == "random" ]]; then
+    selection_path="./meta/selection_strategies/random"
+    valid_strategies=("${RANDOM_STRATEGIES[@]}")
 else
-    echo "Error: selection_type must be one of 'st', 'causalst', or 'safest', got '$selection_type'" >&2
+    echo "Error: selection_type must be one of 'st', 'causalst', 'safest', 'kmeans', 'random', got '$selection_type'" >&2
     exit 1
+fi
+
+if [[ ${#strategies[@]} -eq 0 ]]; then
+    strategies=("${valid_strategies[@]}")
+else
+    for s in "${strategies[@]}"; do
+        if ! printf '%s\n' "${valid_strategies[@]}" | grep -qx "$s"; then
+            echo "Error: strategy '$s' is not valid for type '$selection_type'. Valid strategies: ${valid_strategies[*]}" >&2
+            exit 1
+        fi
+    done
 fi
 
 ############################

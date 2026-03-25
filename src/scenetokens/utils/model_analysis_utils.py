@@ -21,6 +21,27 @@ from scenetokens.schemas import output_schemas as output
 from scenetokens.utils.metric_utils import compute_hamming_distance, compute_jaccard_index
 
 
+def get_scenario_dec_embeddings(
+    model_outputs: dict[str, output.ModelOutput],
+) -> tuple[npt.NDArray[np.str_], npt.NDArray[np.float64]]:
+    """Extracts and flattens scenario_dec embeddings from model outputs.
+
+    Args:
+        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+
+    Returns:
+        scenario_ids (npt.NDArray[np.str_]): array of scenario IDs in insertion order.
+        embeddings (npt.NDArray[np.float64]): array of shape (num_scenarios, embedding_dim).
+    """
+    scenario_ids = []
+    embeddings = []
+    for scenario_id, model_output in model_outputs.items():
+        emb = model_output.scenario_embedding.scenario_dec.value.detach().cpu().numpy().flatten()
+        scenario_ids.append(scenario_id)
+        embeddings.append(emb)
+    return np.asarray(scenario_ids), np.stack(embeddings).astype(np.float64)
+
+
 def get_scenario_classes_best_mode(
     model_outputs: dict[str, output.ModelOutput],
 ) -> tuple[npt.NDArray[np.str_], npt.NDArray[np.int64], npt.NDArray[np.float64], int]:

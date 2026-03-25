@@ -10,6 +10,7 @@ import pandas as pd
 from numpy.random import Generator, default_rng
 from numpy.typing import NDArray
 from omegaconf import DictConfig
+from sklearn.cluster import KMeans
 
 from scenetokens.schemas import output_schemas as output
 from scenetokens.utils.constants import SampleSelection
@@ -17,6 +18,7 @@ from scenetokens.utils.model_analysis_utils import (
     compute_alignment_scores,
     get_group_modes,
     get_scenario_classes_best_mode,
+    get_scenario_dec_embeddings,
     get_tokenization_groups,
 )
 
@@ -75,8 +77,7 @@ def random_selection(config: DictConfig, model_outputs: dict[str, output.ModelOu
         model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
-        selected_samples (dict[str, Any]): a dictionary containing the IDs of the samples (scenarios) to keep or drop
-            for training.
+        A dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
     """
     scenario_ids = list(model_outputs.keys())
     num_scenarios = len(scenario_ids)
@@ -98,8 +99,7 @@ def random_selection_per_token(config: DictConfig, model_outputs: dict[str, outp
         model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
-        selected_samples (dict[str, Any]): a dictionary containing the IDs of the samples (scenarios) to keep or drop
-            for training.
+        selected_samples: a dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
     """
     scenario_ids, scenario_classes, _, _ = get_scenario_classes_best_mode(model_outputs)
     num_scenarios, _ = scenario_classes.shape
@@ -149,8 +149,8 @@ def weighted_sorting(
         sort_ascending: if 'True' it sorts the samples in ascending order so the lowest weight values appear first.
 
     Returns:
-        samples (NDArray[Any]): the sorted samples.
-        weights (NDArray[np.float64]): the sorted weights.
+        samples: the sorted samples.
+        weights: the sorted weights.
     """
     if len(samples) != len(weights):
         error_message = f"Size of samples {len(samples)} and weights {len(weights)} must be the same."
@@ -181,8 +181,8 @@ def weighted_sorting_gumbel(
         large_exponent: exponent value to use for samples whose weights are zero.
 
     Returns:
-        samples (NDArray[Any]): the sorted samples.
-        weights (NDArray[np.float64]): the sorted weights.
+        samples: the sorted samples.
+        weights: the sorted weights.
     """
     if len(samples) != len(weights):
         error_message = f"Size of samples {len(samples)} and weights {len(weights)} must be the same."
@@ -236,7 +236,7 @@ def alignment_based_selection_per_token(
         model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
-        dict[str, Any]: a dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
+        a dictionary containing the IDs of the samples (scenarios) to keep or drop for training.
     """
     num_scenarios = len(model_outputs)
     # Get the groups by token and compute each group's mode
@@ -281,6 +281,74 @@ def alignment_based_selection_per_token(
     return selected_samples
 
 
+def _fit_kmeans(
+    embeddings: NDArray[np.float64],
+    num_clusters: int,
+    seed: int,
+) -> tuple[KMeans, NDArray[np.int32]]:
+    """Fits a KMeans model and returns both the fitted model and the cluster labels.
+
+    The fitted model is returned so callers can access cluster_centers_ (centroids).
+    """
+    kmeans = KMeans(n_clusters=num_clusters, random_state=seed, n_init="auto")
+    cluster_labels: NDArray[np.int32] = kmeans.fit_predict(embeddings)
+    return kmeans, cluster_labels
+
+
+def random_selection_per_cluster(config: DictConfig, model_outputs: dict[str, output.ModelOutput]) -> dict[str, Any]:
+    """A sample selection strategy that clusters scenario_dec embeddings using a clustering algorithm (currently only
+    K-Means is supported) and randomly drops samples per cluster proportional to each cluster's size, mirroring the
+    logic of random_selection_per_token.
+
+    Args:
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
+
+    Returns:
+        A dictionary containing the IDs of the samples to keep or drop.
+    """
+    scenario_ids, embeddings = get_scenario_dec_embeddings(model_outputs)
+    num_scenarios = len(scenario_ids)
+
+    match config.clustering_strategy:
+        case "kmeans":
+            num_clusters = config.get("num_clusters", 100)
+            _, cluster_labels = _fit_kmeans(embeddings, num_clusters, config.seed)
+        case _:
+            error_message = f"Unsupported clustering strategy: {config.clustering_strategy}"
+            raise ValueError(error_message)
+
+    clusters_df = pd.DataFrame({"scenario_id": scenario_ids, "cluster": cluster_labels})
+    percentage_per_cluster = (clusters_df["cluster"].value_counts() / num_scenarios).to_frame(name="percentage")
+
+    num_scenarios_to_drop = int((1 - config.percentage_to_keep) * num_scenarios)
+    min_percentage_per_class = config.min_percentage_per_class
+    valid_percentages = percentage_per_cluster[percentage_per_cluster["percentage"] > min_percentage_per_class]
+    total_valid_percentage = valid_percentages["percentage"].sum()
+
+    selected_samples: dict[Any, Any] = {}
+    for _, row in percentage_per_cluster.iterrows():
+        cluster_id = row.name
+        cluster_scenario_ids = clusters_df["scenario_id"][clusters_df["cluster"] == cluster_id].tolist()
+
+        num_to_drop = _compute_proportional_number_to_drop(
+            num_scenarios_to_drop, row.percentage, min_percentage_per_class, total_valid_percentage
+        )
+
+        random.seed(config.seed)
+        random.shuffle(cluster_scenario_ids)
+        if num_to_drop > 0:
+            selected_samples[cluster_id] = _make_group_result(
+                keep=cluster_scenario_ids[num_to_drop:],
+                drop=cluster_scenario_ids[:num_to_drop],
+            )
+        else:
+            selected_samples[cluster_id] = _make_group_result(keep=cluster_scenario_ids, drop=[])
+
+    _aggregate_selected_samples(selected_samples)
+    return selected_samples
+
+
 def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:
     """Wrapper function which runs a specified sample selection strategy. A sample selection strategy produces a
     dictionary containing the a set of training scenarios to keep and to drop.
@@ -312,6 +380,9 @@ def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mod
             config.sorting_strategy = "gumbel"
             config.alignment_strategy = "hamming"
             sample_selection = alignment_based_selection_per_token(config, model_outputs)
+        case SampleSelection.KMEANS_RANDOM_DROP:
+            config.clustering_strategy = "kmeans"
+            sample_selection = random_selection_per_cluster(config, model_outputs)
         case _:
             error_message = f"Unsupported selection strategy: {selection_strategy}"
             raise ValueError(error_message)
