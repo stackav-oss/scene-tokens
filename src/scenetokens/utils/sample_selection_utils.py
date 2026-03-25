@@ -403,7 +403,7 @@ def cosine_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
     num_scenarios_to_drop = int((1 - config.percentage_to_keep) * num_scenarios)
 
     selected_samples = {}
-    for cluster_id in unique_clusters:
+    for cluster_id in unique_clusters.tolist():
         cluster_mask = cluster_labels == cluster_id
         cluster_scenario_ids = scenario_ids_arr[cluster_mask]
         cluster_embeddings = embeddings[cluster_mask]
