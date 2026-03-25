@@ -1,10 +1,31 @@
 from collections.abc import Sequence
 
+import numpy as np
 import torch
 import torch.nn.functional as F  # noqa: N812
+from numpy.typing import NDArray
 from torch import nn
 
-from scenetokens.utils.constants import DEFAULT_COLLISION_THRESHOLDS, SMALL_EPSILON
+from scenetokens.utils.constants import BIG_EPSILON, DEFAULT_COLLISION_THRESHOLDS, SMALL_EPSILON
+
+
+def compute_cosine_similarity(samples: NDArray[np.float64], target: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Computes cosine similarity between each embedding and a centroid, normalized to [0, 1].
+
+    Args:
+        samples (NDArray[np.float64]): array of shape (num_samples, embedding_dim).
+        target (NDArray[np.float64]): array of shape (embedding_dim,).
+
+    Returns:
+        similarities (NDArray[np.float64]): per-sample cosine similarities in [0, 1].
+    """
+    norms = np.linalg.norm(samples, axis=1, keepdims=True)
+    norms = np.where(norms == 0, BIG_EPSILON, norms)
+    target_norm = np.linalg.norm(target)
+    target_norm = target_norm if target_norm != 0 else BIG_EPSILON
+    cosine_sim = (samples / norms) @ (target / target_norm)
+    # Map from [-1, 1] to [0, 1]
+    return ((cosine_sim + 1.0) / 2.0).astype(np.float64)
 
 
 def compute_jaccard_index(a: set[int], b: set[int]) -> float:

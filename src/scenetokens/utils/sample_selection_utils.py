@@ -14,6 +14,7 @@ from sklearn.cluster import KMeans
 
 from scenetokens.schemas import output_schemas as output
 from scenetokens.utils.constants import SampleSelection
+from scenetokens.utils.metric_utils import compute_cosine_similarity
 from scenetokens.utils.model_analysis_utils import (
     compute_alignment_scores,
     get_group_modes,
@@ -349,6 +350,65 @@ def random_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
     return selected_samples
 
 
+def cosine_selection_per_cluster(config: DictConfig, model_outputs: dict[str, output.ModelOutput]) -> dict[str, Any]:
+    """A sample selection strategy that clusters scenario_dec embeddings using K-Means and drops samples based on
+    cosine similarity to the cluster centroid, mirroring the logic of alignment_based_selection_per_token.
+
+    Samples with high cosine similarity to their cluster centroid (most typical/redundant) are prioritized for
+    dropping. Supports both simple (deterministic) and Gumbel-weighted (stochastic) sorting strategies.
+
+    Args:
+        config (DictConfig): encapsulates model analysis configuration parameters. Requires:
+            num_clusters (int), percentage_to_keep (float), min_percentage_per_class (float), seed (int),
+            sorting_strategy (str, "simple" or "gumbel").
+        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+
+    Returns:
+        selected_samples (dict[str, Any]): a dictionary containing the IDs of the samples to keep or drop.
+    """
+    scenario_ids_list, embeddings = get_scenario_dec_embeddings(model_outputs)
+    scenario_ids_arr = np.array(scenario_ids_list)
+    num_scenarios = len(scenario_ids_list)
+
+    num_clusters = config.get("num_clusters", 100)
+    kmeans, cluster_labels = _fit_kmeans(embeddings, num_clusters, config.seed)
+    centroids = kmeans.cluster_centers_
+
+    unique_clusters, cluster_counts = np.unique(cluster_labels, return_counts=True)
+    cluster_percentages = {
+        int(c): count / num_scenarios for c, count in zip(unique_clusters, cluster_counts, strict=True)
+    }
+    min_percentage_per_class = config.min_percentage_per_class
+    valid_percentages = {k: v for k, v in cluster_percentages.items() if v > min_percentage_per_class}
+    total_valid_percentage = sum(valid_percentages.values())
+
+    num_scenarios_to_drop = int((1 - config.percentage_to_keep) * num_scenarios)
+
+    selected_samples: dict[Any, Any] = {}
+    for cluster_id in unique_clusters:
+        cluster_mask = cluster_labels == cluster_id
+        cluster_scenario_ids = scenario_ids_arr[cluster_mask]
+        cluster_embeddings = embeddings[cluster_mask]
+        cluster_percentage = cluster_percentages[cluster_id]
+
+        num_to_drop = _compute_proportional_number_to_drop(
+            num_scenarios_to_drop, cluster_percentage, min_percentage_per_class, total_valid_percentage
+        )
+
+        if num_to_drop > 0:
+            scores = compute_cosine_similarity(cluster_embeddings, centroids[cluster_id])
+            sorted_ids, _ = _sort_ids_by_score(cluster_scenario_ids, scores, config.sorting_strategy, config.seed)
+            selected_samples[cluster_id] = _make_group_result(
+                keep=sorted_ids[num_to_drop:].tolist(),
+                drop=sorted_ids[:num_to_drop].tolist(),
+            )
+        else:
+            selected_samples[cluster_id] = _make_group_result(keep=cluster_scenario_ids.tolist(), drop=[])
+
+    _aggregate_selected_samples(selected_samples)
+    return selected_samples
+
+
 def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:
     """Wrapper function which runs a specified sample selection strategy. A sample selection strategy produces a
     dictionary containing the a set of training scenarios to keep and to drop.
@@ -383,6 +443,12 @@ def run_sample_selection(config: DictConfig, model_outputs: dict[str, output.Mod
         case SampleSelection.KMEANS_RANDOM_DROP:
             config.clustering_strategy = "kmeans"
             sample_selection = random_selection_per_cluster(config, model_outputs)
+        case SampleSelection.SIMPLE_KMEANS_COSINE_DROP:
+            config.sorting_strategy = "simple"
+            sample_selection = cosine_selection_per_cluster(config, model_outputs)
+        case SampleSelection.GUMBEL_KMEANS_COSINE_DROP:
+            config.sorting_strategy = "gumbel"
+            sample_selection = cosine_selection_per_cluster(config, model_outputs)
         case _:
             error_message = f"Unsupported selection strategy: {selection_strategy}"
             raise ValueError(error_message)
