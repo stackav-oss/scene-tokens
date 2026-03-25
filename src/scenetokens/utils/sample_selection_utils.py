@@ -296,6 +296,31 @@ def _fit_kmeans(
     return kmeans, cluster_labels
 
 
+def _cluster_embeddings(config: DictConfig, embeddings: NDArray[np.float64]) -> tuple[Any, NDArray[np.int32]]:
+    """Resolves the clustering strategy from config, validates inputs, and fits the model.
+
+    Args:
+        config: must contain `clustering_strategy` and `seed`; optionally `num_clusters` (default 100).
+        embeddings: array of shape (num_embeddings, embedding_dim).
+
+    Returns:
+        A (kmeans, cluster_labels) tuple from the fitted model.
+
+    Raises:
+        ValueError: if num_embeddings <= num_clusters or the clustering strategy is unsupported.
+    """
+    match config.clustering_strategy:
+        case "kmeans":
+            num_clusters = config.get("num_clusters", 100)
+            if len(embeddings) <= num_clusters:
+                error_message = f"num_embeddings ({len(embeddings)}) must be greater than num_clusters ({num_clusters})"
+                raise ValueError(error_message)
+            return _fit_kmeans(embeddings, num_clusters, config.seed)
+        case _:
+            error_message = f"Unsupported clustering strategy: {config.clustering_strategy}"
+            raise ValueError(error_message)
+
+
 def random_selection_per_cluster(config: DictConfig, model_outputs: dict[str, output.ModelOutput]) -> dict[str, Any]:
     """A sample selection strategy that clusters scenario_dec embeddings using a clustering algorithm (currently only
     K-Means is supported) and randomly drops samples per cluster proportional to each cluster's size, mirroring the
@@ -311,13 +336,7 @@ def random_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
     scenario_ids, embeddings = get_scenario_dec_embeddings(model_outputs)
     num_scenarios = len(scenario_ids)
 
-    match config.clustering_strategy:
-        case "kmeans":
-            num_clusters = config.get("num_clusters", 100)
-            _, cluster_labels = _fit_kmeans(embeddings, num_clusters, config.seed)
-        case _:
-            error_message = f"Unsupported clustering strategy: {config.clustering_strategy}"
-            raise ValueError(error_message)
+    _, cluster_labels = _cluster_embeddings(config, embeddings)
 
     clusters_df = pd.DataFrame({"scenario_id": scenario_ids, "cluster": cluster_labels})
     percentage_per_cluster = (clusters_df["cluster"].value_counts() / num_scenarios).to_frame(name="percentage")
@@ -358,22 +377,21 @@ def cosine_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
     dropping. Supports both simple (deterministic) and Gumbel-weighted (stochastic) sorting strategies.
 
     Args:
-        config (DictConfig): encapsulates model analysis configuration parameters. Requires:
+        config: encapsulates model analysis configuration parameters. Requires:
             num_clusters (int), percentage_to_keep (float), min_percentage_per_class (float), seed (int),
             sorting_strategy (str, "simple" or "gumbel").
-        model_outputs (dict[str, output.ModelOutput]): a dictionary containing model outputs per scenario.
+        model_outputs: a dictionary containing model outputs per scenario.
 
     Returns:
-        selected_samples (dict[str, Any]): a dictionary containing the IDs of the samples to keep or drop.
+        selected_samples: A dictionary containing the IDs of the samples to keep or drop.
     """
     scenario_ids_list, embeddings = get_scenario_dec_embeddings(model_outputs)
     scenario_ids_arr = np.array(scenario_ids_list)
     num_scenarios = len(scenario_ids_list)
 
-    num_clusters = config.get("num_clusters", 100)
-    kmeans, cluster_labels = _fit_kmeans(embeddings, num_clusters, config.seed)
-    centroids = kmeans.cluster_centers_
+    kmeans, cluster_labels = _cluster_embeddings(config, embeddings)
 
+    centroids = kmeans.cluster_centers_
     unique_clusters, cluster_counts = np.unique(cluster_labels, return_counts=True)
     cluster_percentages = {
         int(c): count / num_scenarios for c, count in zip(unique_clusters, cluster_counts, strict=True)
