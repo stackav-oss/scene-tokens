@@ -3,7 +3,7 @@ from enum import Enum
 
 MILLION = 1e6
 SMALL_EPSILON = 1e-10
-BIG_EPSILON = 1e10
+LARGE_FLOAT = 1e10
 POSITION_DIMS = [2, 3]
 MIN_VALID_POINTS = 2
 
@@ -28,6 +28,8 @@ class SampleSelection(Enum):
     GUMBEL_TOKEN_JACCARD_DROP = "gumbel_token_jaccard_drop"  # noqa: S105
     GUMBEL_TOKEN_HAMMING_DROP = "gumbel_token_hamming_drop"  # noqa: S105
     KMEANS_RANDOM_DROP = "kmeans_random_drop"
+    SIMPLE_KMEANS_COSINE_DROP = "simple_kmeans_cosine_drop"
+    GUMBEL_KMEANS_COSINE_DROP = "gumbel_kmeans_cosine_drop"
 
 
 class DataSplits(Enum):
