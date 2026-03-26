@@ -12,7 +12,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
 from omegaconf import DictConfig
 
-from scenetokens.utils.constants import SMALL_EPSILON
+from scenetokens.utils.constants import EPSILON
 
 
 MODEL_NAME_MAP = {
@@ -530,7 +530,7 @@ def _plot_sample_selection_sweep_heatmap_baseline_gap(  # noqa: PLR0912, PLR0915
                     if not row.empty and column in row.columns:
                         strategy_value = row.iloc[0][column]
                         # Compute gap: (strategy_val - baseline_val) / baseline_val * 100
-                        gap = ((strategy_value - base_value) / (abs(base_value) + SMALL_EPSILON)) * 100
+                        gap = ((strategy_value - base_value) / (abs(base_value) + EPSILON)) * 100
                         data[i, j] = gap
                         all_gaps.append(gap)
             heatmap_data[pct] = data
@@ -685,7 +685,7 @@ def _plot_sample_selection_sweep_distribution_gap(  # noqa: PLR0912, PLR0915
             if not base_row.empty and id_column in base_row.columns and ood_column in base_row.columns:
                 id_val = base_row.iloc[0][id_column]
                 ood_val = base_row.iloc[0][ood_column]
-                baseline_gap = ((ood_val - id_val) / (abs(id_val) + SMALL_EPSILON)) * 100
+                baseline_gap = ((ood_val - id_val) / (abs(id_val) + EPSILON)) * 100
                 baseline_gaps[model] = baseline_gap
                 baseline_id_values[model] = id_val
             else:
@@ -705,7 +705,7 @@ def _plot_sample_selection_sweep_distribution_gap(  # noqa: PLR0912, PLR0915
                     if not row.empty and id_column in row.columns and ood_column in row.columns:
                         id_val = row.iloc[0][id_column]
                         ood_val = row.iloc[0][ood_column]
-                        gap = ((ood_val - id_val) / (abs(id_val) + SMALL_EPSILON)) * 100
+                        gap = ((ood_val - id_val) / (abs(id_val) + EPSILON)) * 100
                         data[i, j] = gap
                         all_gaps.append(gap)
             heatmap_data[pct] = data
@@ -946,7 +946,7 @@ def _plot_distribution_shift_comparison(
     # Performance Gap (OOD - ID, absolute difference)
     id_values = summary_df[id_metric].to_numpy()
     ood_values = summary_df[ood_metric].to_numpy()
-    gap_values = ((ood_values - id_values) / (id_values + SMALL_EPSILON)) * 100  # pyright: ignore[reportOperatorIssue]
+    gap_values = ((ood_values - id_values) / (id_values + EPSILON)) * 100  # pyright: ignore[reportOperatorIssue]
 
     # Color bars based on gap direction: red for performance drop, green for improvement
     gap_colors = ["#f07569" if gap > 0 else "#7cbf7c" for gap in gap_values]
@@ -1068,7 +1068,7 @@ def _plot_performance_gaps(
             ood_id_diff = ood_vals - id_vals
             gap_data[metric_name] = {
                 "absolute": ood_id_diff,
-                "percent": (ood_id_diff / (id_vals + SMALL_EPSILON)) * 100,
+                "percent": (ood_id_diff / (id_vals + EPSILON)) * 100,
             }
 
     if gap_data:
@@ -1340,7 +1340,7 @@ def _distribution_shift_to_tex_table(  # noqa: PLR0912, PLR0913, PLR0915
         ood_vals = benchmark_df[ood_col]
         best_ood[metric] = ood_vals.min()
 
-        gaps = ((ood_vals - id_vals) / (id_vals + SMALL_EPSILON)) * 100
+        gaps = ((ood_vals - id_vals) / (id_vals + EPSILON)) * 100
         gap_stats[metric] = (gaps.min(), gaps.max())  # best, worst
 
     # Build rows
@@ -1384,10 +1384,10 @@ def _distribution_shift_to_tex_table(  # noqa: PLR0912, PLR0913, PLR0915
 
             # Out of Distribution value with gap annotation and coloring
             if pd.notna(id_val) and pd.notna(ood_val):
-                gap = ((ood_val - id_val) / (id_val + SMALL_EPSILON)) * 100
+                gap = ((ood_val - id_val) / (id_val + EPSILON)) * 100
 
                 best_gap, worst_gap = gap_stats[metric]
-                denom = max(abs(worst_gap - best_gap), SMALL_EPSILON)
+                denom = max(abs(worst_gap - best_gap), EPSILON)
                 severity = abs(gap - best_gap) / denom
                 severity = np.clip(severity, 0, 1)
 
