@@ -18,7 +18,8 @@ from scenetokens.schemas.output_schemas import (
     ScenarioScores,
     TrajectoryDecoderOutput,
 )
-from scenetokens.utils import metric_utils, save_cache
+from scenetokens.utils import metrics as metric_utils
+from scenetokens.utils import save_cache
 from scenetokens.utils.constants import KALMAN_DIFFICULTY, MILLION, ModelStatus, TrajectoryType
 
 
@@ -520,13 +521,13 @@ class BaseModel(LightningModule, ABC):
         #     selected_scenario_class = scenario_class_probs.argmax(dim=-1)
 
         #     # Perplexity measures uncertainty in the output probabilities with respect to the selected class.
-        #     perplexity = metric_utils.compute_perplexity(scenario_class_probs, selected_scenario_class)
+        #     perplexity = compute_perplexity(scenario_class_probs, selected_scenario_class)
         #     loss_dict["perplexity"] = perplexity.cpu().detach().numpy()
 
         #     # Mutual information measures how related scenario probability distributions are to their classes.
         #     num_classes = scenario_class_probs.shape[-1]
         #     scenario_class_onehot = F.one_hot(selected_scenario_class, num_classes)
-        #     mutual_information = metric_utils.compute_mutual_information(
+        #     mutual_information = compute_mutual_information(
         #         scenario_class_probs, scenario_class_onehot, normalize=True
         #     )
         #     loss_dict["mutualInformation"] = mutual_information.cpu().detach().numpy()

@@ -13,8 +13,8 @@ from omegaconf import DictConfig
 from sklearn.cluster import KMeans
 
 from scenetokens.schemas import output_schemas as output
+from scenetokens.utils import metrics as metrics_utils
 from scenetokens.utils.constants import INVALID_AGENT_ID, SampleSelection
-from scenetokens.utils.metric_utils import compute_cosine_similarity, compute_pairwise_cosine_similarity
 from scenetokens.utils.model_analysis_utils import (
     compute_alignment_scores,
     get_group_modes,
@@ -414,7 +414,7 @@ def cosine_selection_per_cluster(config: DictConfig, model_outputs: dict[str, ou
         )
 
         if num_to_drop > 0:
-            scores = compute_cosine_similarity(cluster_embeddings, centroids[cluster_id])
+            scores = metrics_utils.compute_cosine_similarity(cluster_embeddings, centroids[cluster_id])
             sorted_ids, _ = _sort_ids_by_score(cluster_scenario_ids, scores, config.sorting_strategy, config.seed)
             selected_samples[cluster_id] = _make_group_result(
                 keep=sorted_ids[num_to_drop:].tolist(),
@@ -465,7 +465,7 @@ def _greedy_submodular_select(
         return [], scenario_ids.tolist()
 
     # Precompute full pairwise cosine similarity matrix (N x N)
-    sim_matrix = compute_pairwise_cosine_similarity(embeddings)
+    sim_matrix = metrics_utils.compute_pairwise_cosine_similarity(embeddings)
 
     selected_mask = np.zeros(num_scenarios, dtype=bool)
 
