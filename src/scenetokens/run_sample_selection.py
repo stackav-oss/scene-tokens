@@ -2,14 +2,15 @@
 
 Example usage:
 
-    uv run -m scenetokens.sample_selection \
+    uv run -m scenetokens.run_sample_selection \
         ckpt_path=/path/to/scenetokens/checkpoint.ckpt
         model=scenetokens
-        selection_strategy='token_random_drop'
 
 See `docs/ANALYSIS.md` and `configs/sample_selection.yaml` for more argument details.
 """
 
+import json
+from copy import deepcopy
 from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -20,8 +21,9 @@ import torch
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader, Dataset
 
-from scenetokens import utils
-from scenetokens.utils.constants import DataSplits
+from scenetokens import sample_selection, utils
+from scenetokens.schemas import output_schemas as output
+from scenetokens.utils.constants import DataSplits, SampleSelection
 
 
 if TYPE_CHECKING:
@@ -36,8 +38,59 @@ root_path = pyrootutils.setup_root(__file__, indicator=".project-root", pythonpa
 utils.disable_mlflow_tls_verification()
 
 
+def _run_sample_selection(config: DictConfig, model_outputs: dict[str, output.ModelOutput], output_path: Path) -> None:
+    """Wrapper function which runs a specified sample selection strategy. A sample selection strategy produces a
+    dictionary containing the a set of training scenarios to keep and to drop.
+
+    Args:
+        config: encapsulates model analysis configuration parameters.
+        model_outputs: a dictionary containing model outputs per scenario.
+        output_path: output path where visualization will be saved to.
+    """
+    selection_strategy = SampleSelection(config.selection_strategy)
+    match selection_strategy:
+        case SampleSelection.RANDOM_DROP:
+            selected_samples = sample_selection.random_selection(config, model_outputs)
+        case SampleSelection.TOKEN_RANDOM_DROP:
+            selected_samples = sample_selection.random_selection_per_token(config, model_outputs)
+        case SampleSelection.SIMPLE_TOKEN_JACCARD_DROP:
+            config.sorting_strategy = "simple"
+            config.alignment_strategy = "jaccard"
+            selected_samples = sample_selection.alignment_based_selection_per_token(config, model_outputs)
+        case SampleSelection.SIMPLE_TOKEN_HAMMING_DROP:
+            config.sorting_strategy = "simple"
+            config.alignment_strategy = "hamming"
+            selected_samples = sample_selection.alignment_based_selection_per_token(config, model_outputs)
+        case SampleSelection.GUMBEL_TOKEN_JACCARD_DROP:
+            config.sorting_strategy = "gumbel"
+            config.alignment_strategy = "jaccard"
+            selected_samples = sample_selection.alignment_based_selection_per_token(config, model_outputs)
+        case SampleSelection.GUMBEL_TOKEN_HAMMING_DROP:
+            config.sorting_strategy = "gumbel"
+            config.alignment_strategy = "hamming"
+            selected_samples = sample_selection.alignment_based_selection_per_token(config, model_outputs)
+        case SampleSelection.KMEANS_RANDOM_DROP:
+            config.clustering_strategy = "kmeans"
+            selected_samples = sample_selection.random_selection_per_cluster(config, model_outputs)
+        case SampleSelection.SIMPLE_KMEANS_COSINE_DROP:
+            config.sorting_strategy = "simple"
+            selected_samples = sample_selection.cosine_selection_per_cluster(config, model_outputs)
+        case SampleSelection.GUMBEL_KMEANS_COSINE_DROP:
+            config.sorting_strategy = "gumbel"
+            selected_samples = sample_selection.cosine_selection_per_cluster(config, model_outputs)
+        case SampleSelection.DEN_TP:
+            selected_samples = sample_selection.dentp_selection(config, model_outputs)
+        case _:
+            error_message = f"Unsupported selection strategy: {selection_strategy}"
+            raise ValueError(error_message)
+
+    output_filepath = output_path / f"sample_selection_{selection_strategy.value}_{config.percentage_to_keep}.json"
+    with output_filepath.open("w") as f:
+        json.dump(selected_samples, f, indent=2)
+
+
 @utils.task_wrapper
-def evaluate_and_cache_dataset(cfg: DictConfig) -> tuple[dict, dict]:
+def _evaluate_and_cache_dataset(cfg: DictConfig) -> tuple[dict, dict]:
     """Evaluates and caches the training set for sample selection purposes.
 
     Args:
@@ -89,22 +142,23 @@ def main(cfg: DictConfig) -> None:
 
     # Run model evaluation to cache the training set embeddings
     if cfg.create_training_batch_cache:
-        evaluate_and_cache_dataset(cfg)
+        _evaluate_and_cache_dataset(cfg)
 
     log.info("Loading batches from %s", cfg.paths.batch_cache_path)
     batches = utils.load_batches(cfg.paths.batch_cache_path, cfg.num_batches, cfg.num_scenarios, cfg.seed, cfg.split)
 
-    # Run sample selection/
+    # Run sample selection
     output_path = Path(cfg.paths.meta_path)
     output_path.mkdir(parents=True, exist_ok=True)
     log.info("Saving sample selection lists to %s", str(output_path))
     for selection_strategy, percentage_to_keep in product(cfg.selection_strategies, cfg.percentages_to_keep):
-        cfg.selection_strategy = selection_strategy
-        cfg.percentage_to_keep = percentage_to_keep
+        ss_cfg = deepcopy(cfg)
+        ss_cfg.selection_strategy = selection_strategy
+        ss_cfg.percentage_to_keep = percentage_to_keep
         log.info(
             "Running sample selection with strategy: %s, percentage_to_keep: %s", selection_strategy, percentage_to_keep
         )
-        utils.run_sample_selection(cfg, batches, output_path)
+        _run_sample_selection(ss_cfg, batches, output_path)
 
 
 if __name__ == "__main__":

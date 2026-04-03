@@ -25,7 +25,6 @@ from scenetokens.utils.model_metric_analysis_utils import (
 )
 from scenetokens.utils.pylogger import get_pylogger
 from scenetokens.utils.rich_utils import enforce_tags, log_hyperparameters, print_config_tree
-from scenetokens.utils.sample_selection_utils import run_sample_selection
 from scenetokens.utils.utils import disable_mlflow_tls_verification, extras, get_metric_value, task_wrapper
 
 
@@ -60,7 +59,6 @@ __all__ = [
     "print_config_tree",
     "read_score_analysis",
     "run_benchmark_analysis",
-    "run_sample_selection",
     "save_cache",
     "task_wrapper",
 ]
