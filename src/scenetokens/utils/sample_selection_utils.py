@@ -505,11 +505,12 @@ def _dentp_allocate_budget(
     which processes bins sequentially and implicitly assumes low agent-density scenes are common. In datasets where that
     assumption does not hold — e.g. high agent-density scenes are over-represented in terms of scenario count, or the
     range of agents per scenario is small and skews the bin distribution — that rule gives such scenes an unfair share
-    of the budget. This function instead pre-allocates the full budget across all bins simultaneously using a weight
-    that combines both agent density (k, number of agents per scene) and scenario density (|D_k|, number of scenarios
-    in each bin).
+    of the budget.
+    This function instead pre-allocates the full budget across all bins simultaneously using a weight that combines both
+    agent density (k, number of agents per scene) and scenario density complement (|D| - |D_k|, number of scenarios not
+    in the kth bin).
 
-    Weight formula: w_k = k^agent_density_weight / |D_k|
+    Weight formula: w_k = k^agent_density_weight / (|D| - |D_k|)
         - agent_density_weight=0  → pure inverse-scenario-density (combat over-represented bins only)
         - agent_density_weight=1  → agent density and scenario density balanced (default)
         - agent_density_weight→∞  → approaches agent-density-only (original paper's implicit behaviour)
@@ -530,8 +531,20 @@ def _dentp_allocate_budget(
 
     bin_keys = sorted(partitions.keys())
     sizes = {k: len(partitions[k]) for k in bin_keys}
-    total_num_scenarios = sum(sizes.values())
 
+    # Check for the edge case where there's only one bin, to avoid division by zero in weight calculation.
+    if len(partitions) == 1:
+        (k,) = partitions
+        if total_budget >= sizes[k]:
+            error_message = (
+                f"Total_budget ({total_budget}) exceeds the number of scenarios in the only density bin ({sizes[k]}). "
+                "Reduce percentage_to_keep or check density_interval — all scenarios fall into a single bin."
+            )
+            raise ValueError(error_message)
+        return {k: total_budget}
+
+    # Calculate the allocation weights for each bin
+    total_num_scenarios = sum(sizes.values())
     raw_weights = {k: (k**agent_density_weight) / (total_num_scenarios - sizes[k]) for k in bin_keys}
     total_weight = sum(raw_weights.values())
     percentages = {k: round(raw_weights[k] / total_weight, 3) for k in bin_keys}
@@ -586,6 +599,12 @@ def dentp_selection(config: DictConfig, model_outputs: dict[str, output.ModelOut
     scenario_ids, embeddings = get_scenario_dec_embeddings(model_outputs)
     num_scenarios = len(scenario_ids)
 
+    if num_scenarios == 0:
+        error_message = (
+            "No valid scenarios found. Check that model_outputs is not empty and have valid scenario embeddings"
+        )
+        raise ValueError(error_message)
+
     agent_counts = np.array([_get_agent_count(model_outputs[sid]) for sid in scenario_ids], dtype=np.int64)
 
     tau = int(config.get("agent_density_interval", 4))
@@ -621,6 +640,7 @@ def dentp_selection(config: DictConfig, model_outputs: dict[str, output.ModelOut
 
         keep, drop = _greedy_submodular_select(partition_scenario_ids, partition_embeddings, num_to_keep)
         selected_samples[k] = _make_group_result(keep=keep, drop=drop)
+
     _aggregate_selected_samples(selected_samples)
     return selected_samples
 
