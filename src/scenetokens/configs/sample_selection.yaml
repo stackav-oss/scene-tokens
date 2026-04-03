@@ -38,7 +38,8 @@ clustering_strategy: 'kmeans' # clustering strategy to use for sample selection,
 num_clusters: 100 # number of clusters to use for k-means strategy
 
 # DenTP specific parameters
-density_interval: 4
+agent_density_interval: 4 # agent interval to separate scenarios into different bins
+agent_density_weight: 1.0  # removal weight w_k = k^agent_density_weight / (|D| - |D_k|)
 
 # General Parameters
 task_name: 'sample_selection' # Reference task name
