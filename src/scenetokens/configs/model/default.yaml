@@ -23,7 +23,7 @@ config:
   num_modes: 6
   hidden_size: 256
   center_offset_of_map: [30.0, 0.0]
-  manually_split_lane: False 
+  manually_split_lane: False
   point_sampled_interval: 1
   num_points_each_polyline: 20
   vector_break_dist_thresh: 1.0
