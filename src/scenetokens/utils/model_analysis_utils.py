@@ -18,7 +18,7 @@ from sklearn.manifold import TSNE
 
 from scenetokens import utils
 from scenetokens.schemas import output_schemas as output
-from scenetokens.utils.metric_utils import compute_hamming_distance, compute_jaccard_index
+from scenetokens.utils import metrics as metrics_utils
 
 
 def get_scenario_dec_embeddings(
@@ -626,9 +626,12 @@ def compute_alignment_scores(
     """
     match alignment_measure:
         case "jaccard":
-            scores = [compute_jaccard_index(set(target), set(sample.tolist())) for sample in samples]
+            scores = [metrics_utils.compute_jaccard_index(set(target), set(sample.tolist())) for sample in samples]
         case "hamming":
-            scores = [compute_hamming_distance(target, sample.tolist(), return_inverse=True) for sample in samples]
+            scores = [
+                metrics_utils.compute_hamming_distance(target, sample.tolist(), return_inverse=True)
+                for sample in samples
+            ]
         case _:
             error_message = f"{alignment_measure} is not supported"
             raise ValueError(error_message)
@@ -749,7 +752,7 @@ def compute_group_uniqueness(
         if unique is None:
             continue
         counts = counts.astype(np.float64)
-        group_uniqueness[n] = compute_jaccard_index(scenario_vocabulary, set(unique.tolist()))
+        group_uniqueness[n] = metrics_utils.compute_jaccard_index(scenario_vocabulary, set(unique.tolist()))
         match config.normalize_counts:
             case "group_scenarios":
                 norm_value = tokenization_groups[n].shape[0]
@@ -800,7 +803,7 @@ def compute_intergroup_uniqueness(
         group_j = group_unique.get(j, None)
         if group_i is None or group_j is None:
             continue
-        intergroup_uniqueness[i, j] = compute_jaccard_index(set(group_i.tolist()), set(group_j.tolist()))
+        intergroup_uniqueness[i, j] = metrics_utils.compute_jaccard_index(set(group_i.tolist()), set(group_j.tolist()))
 
     # Visualize the uniqueness matrix as a heatmap
     plot_heatmap(
