@@ -13,8 +13,8 @@ Example usage:
     uv run -m scenetokens.create_benchmark benchmark=ego_safeshift \\
         scenario_score_mapping_filepath=meta/scenario_to_scores_mapping.csv
 
-    # Environments benchmark
-    uv run -m scenetokens.create_benchmark benchmark=environments
+    # SafeShift benchmark
+    uv run -m scenetokens.create_benchmark benchmark=safeshift
 
 See `configs/create_benchmark.yaml` and the per-benchmark configs under `configs/benchmark/` for all options.
 """
