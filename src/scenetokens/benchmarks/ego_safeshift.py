@@ -14,6 +14,7 @@ See configs/benchmark/ego_safeshift.yaml for all available options.
 """
 
 import multiprocessing
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -82,7 +83,7 @@ def create_ego_safeshift_benchmark(config: DictConfig) -> None:
     with multiprocessing.Pool(config.num_workers) as pool:
         list(
             tqdm(
-                pool.starmap(copy_scenario, tasks),
+                pool.starmap(partial(copy_scenario, unlink_source=config.unlink_source), tasks),
                 total=len(tasks),
                 desc="Copying scenarios",
             )

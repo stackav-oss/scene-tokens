@@ -120,7 +120,7 @@ def create_safeshift_benchmark(config: DictConfig) -> None:
     with multiprocessing.Pool(config.num_workers) as pool:
         list(
             tqdm(
-                pool.starmap(partial(copy_scenario, unlink_source=True), tasks),
+                pool.starmap(partial(copy_scenario, unlink_source=config.unlink_source), tasks),
                 total=len(tasks),
                 desc="Copying scenarios",
             )
