@@ -14,7 +14,6 @@ See configs/benchmark/ego_safeshift.yaml for all available options.
 """
 
 import multiprocessing
-from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -35,7 +34,7 @@ def create_ego_safeshift_benchmark(config: DictConfig) -> None:
     """Creates benchmark scenarios for the Ego-SafeShift benchmark.
 
     Splits the dataset by safety score percentile: scenarios below cutoff_percentile go into the training/validation
-    pool (split 90/10 by default); scenarios above go into the test set. Files are copied from causal_data_path into the
+    pool (split 80/20 by default); scenarios above go into the test set. Files are copied from causal_data_path into the
     appropriate split subdirectory.
 
     Args:
@@ -47,7 +46,7 @@ def create_ego_safeshift_benchmark(config: DictConfig) -> None:
     random_generator: Generator = default_rng(config.seed)
 
     filepaths = collect_scenario_filepaths(Path(config.input_data_path))
-    input_scenario_mapping = {fp.name: fp for fp in filepaths}
+    input_scenario_mapping = {fp.stem: fp for fp in filepaths}
 
     print("Processing Ego-SafeShift benchmark")
     create_split_dirs(output_data_path)
@@ -74,18 +73,17 @@ def create_ego_safeshift_benchmark(config: DictConfig) -> None:
     ].tolist()
     output_scenario_mapping.update(get_scenario_mapping(testing_scenarios, output_data_path, "testing"))
 
+    tasks = [
+        (scenario_id, input_scenario_mapping[scenario_id], output_scenario_mapping[scenario_id])
+        for scenario_id in output_scenario_mapping
+        if scenario_id in input_scenario_mapping
+    ]
+
     with multiprocessing.Pool(config.num_workers) as pool:
         list(
             tqdm(
-                pool.imap_unordered(
-                    partial(
-                        copy_scenario,
-                        input_scenario_mapping=input_scenario_mapping,
-                        output_scenario_mapping=output_scenario_mapping,
-                    ),
-                    list(output_scenario_mapping.keys()),
-                ),
-                total=len(output_scenario_mapping),
+                pool.starmap(copy_scenario, tasks),
+                total=len(tasks),
                 desc="Copying scenarios",
             )
         )

@@ -11,7 +11,7 @@ where `model_name`: either of `wayformer`, `scenetransformer`, `scenetokens_stud
 Additional command line arguments:
 * `logger`: either of `mlflow`, `neptune`, `tensorboard`, `wandb`, `csv` or `many_loggers` (which will use both `mlflow` and `csv`). Specific parameters might need to be set for some loggers. **Default** value is `many_loggers`.
 * `scenario`: either of `waymo` or `nuscenes`. This will simply set the scenario sequence partition. **Default** value is `waymo`, which will partition the scenario into 1.1 seconds of history and 8 seconds for prediction.
-* `paths`: either of `waymo ` (Experiment 1), `waymo_causal_labeled` (Experiment 2), `waymo_causal_unlabeled` (Experiment 3), `safeshift` (Experiment 4), or `safeshift_causal` (Experiment 5). Each specifies the paths to the train/val/test data. **Default** value is `waymo`. See this [doc](./EXPERIMENTS.md) for more details on each experiment.
+* `paths`: either of `waymo`, `causal_agents`, `safeshift`, `safeshift_causal`, or `ego_safeshift_causal`. Each specifies the paths to the train/val/test data. **Default** value is `waymo`.
 * `trainer`: either of `cpu`, `ddp`, `gpu` or `mps`. **Default** value is `gpu'.
 * `dataset`: This specifies the input data representation. Currently, the only supported value is `waymo`. See this [doc](./DATA_PREPARATION.md) for more details on how to prepare the data.
 
