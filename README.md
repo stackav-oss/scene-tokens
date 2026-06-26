@@ -18,10 +18,10 @@ uv run python -c "import torch; print(torch.cuda.is_available())"
 uv run python -c "import characterization"
 ```
 
-If installing with dev, run
+For a development installation, synchronise the project environment with the `dev` extra and install the Git hooks:
 ```bash
-uv run pip install -e. ".[dev]"
-uv run pre-commit install
+uv sync --extra dev
+uv run --extra dev pre-commit install
 ```
 
 ## Documentation
