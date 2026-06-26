@@ -1,64 +1,82 @@
-# Training on WOMD
+# Model Training
 
-## Training a single experiment
+## Single Experiment
 
-To run a training experiment:
+Run a training experiment with Hydra configuration overrides.
+
 ```bash
 uv run -m scenetokens.train model=[model_name]
 ```
-where `model_name`: either of `wayformer`, `scenetransformer`, `scenetokens_student`, `scenetokens_teacher`, `scenetokens_teacher_unmasked`, `safe_scenetokens`, `mtr` or `autobot`. The model name needs to be specified.
 
-Additional command line arguments:
-* `logger`: either of `mlflow`, `neptune`, `tensorboard`, `wandb`, `csv` or `many_loggers` (which will use both `mlflow` and `csv`). Specific parameters might need to be set for some loggers. **Default** value is `many_loggers`.
-* `scenario`: either of `waymo` or `nuscenes`. This will simply set the scenario sequence partition. **Default** value is `waymo`, which will partition the scenario into 1.1 seconds of history and 8 seconds for prediction.
-* `paths`: either of `waymo`, `causal_agents`, `safeshift`, `safeshift_causal`, or `ego_safeshift_causal`. Each specifies the paths to the train/val/test data. **Default** value is `waymo`.
-* `trainer`: either of `cpu`, `ddp`, `gpu` or `mps`. **Default** value is `gpu'.
-* `dataset`: This specifies the input data representation. Currently, the only supported value is `waymo`. See this [doc](./DATA_PREPARATION.md) for more details on how to prepare the data.
+The `model` value selects the model configuration.
+Supported values include `wayformer`, `scenetransformer`, `scenetokens`, `scenetokens_student`, `safe_scenetokens`, `mtr`, and `autobot`, subject to the configuration files present in `src/scenetokens/configs/model`.
+The `scenetokens_student` option is a Student-equivalent alias over the current renamed `SceneTokens` implementation.
 
+## Common Overrides
 
-## Logging Details
+- `logger`: Selects the logger configuration, such as `csv`, `mlflow`, `neptune`, `tensorboard`, `wandb`, or `many_loggers`.
+- `scenario`: Selects the model horizon configuration.
+- `paths`: Selects the input and output path family.
+- `trainer`: Selects the PyTorch Lightning trainer configuration, such as `cpu`, `ddp`, `gpu`, or `mps`.
+- `dataset`: Selects the dataset representation, such as `waymo` or `open_scenario`.
 
-#### CSV (Default)
-Outputs will be saved to `out/logs/runs/date/experiment_name/csv`.
+## OpenScenario Training
 
-####  MLflow (Default)
-Currently, it needs **tracking_uri** specification, as:
+Use `dataset=open_scenario` and `paths=open_scenario` for OpenScenario datasets materialised under `${paths.base_path}/processed/${paths.tag}`.
+The OpenScenario loader preserves physical time by sampling at `dataset.config.target_frequency_hz`, expressed in hertz.
+It derives the closest fixed integer stride from the source timestamps, then truncates or rejects scenarios according to `scenario.past_len + scenario.future_len`.
+It does not rescale each scenario to a variable timestep interval.
+
+```bash
+uv run -m scenetokens.train \
+  model=scenetokens_student \
+  dataset=open_scenario \
+  paths=open_scenario \
+  paths.tag=[dataset_tag] \
+  dataset.config.target_frequency_hz=[frequency_hz] \
+  test=false
+```
+
+The configured target frequency should match the intended physical cadence of the materialised dataset.
+The default Waymo horizon remains `past_len=11` and `future_len=80`, requiring `91` sampled frames per cached scenario.
+
+## Logging
+
+CSV logs are written under the configured Hydra output directory.
+MLflow requires an explicit tracking URI when the `mlflow` logger is used.
+
 ```bash
 uv run -m scenetokens.train model=wayformer logger.mlflow.tracking_uri=[uri]
 ```
 
-#### Tensorboard
-To visualize logs:
+TensorBoard can visualise logs from the configured output directory.
+
 ```bash
 uv run tensorboard --logdir out/ --host [host-address] --port [port]
 ```
 
-#### Other
-The other loggers (`neptune`, `wandb`) have not been configured yet, but have pytorch-lightning support. See this [link](https://lightning.ai/docs/pytorch/stable/api_references.html#loggers) for reference.
+## Evaluation
 
-## Evaluating a single experiment
-To run an evaluation, specify any additional config arguments as above and a checkpoint name.
+Run evaluation by providing a checkpoint path and the same model and data overrides used for training.
+
 ```bash
 uv run -m scenetokens.eval ckpt_path=/path/to/the/ckpt.pth model=[model_name]
 ```
 
 ## Debugging
-There are various debugging configurations which can be enabled by adding `debug=[debug_name]` to the command, where `debug_name` is either of:
-* `default`: runs one epoch on debug mode on cpu.
-* `fdr`: runs 1 train, 1 validation and 1 testing step.
-* `limit`: runs n epochs with 1% of the training data dn 5% of the val/test data.
-* `overfit`: runs n epochs to overfit on b batches.
-* `profiler`: runs a performance profiler experiment.
 
-Example, running the profiler:
+Debug configurations can be enabled with `debug=[debug_name]`.
+The `fdr` configuration runs one train step and one validation step.
+The `limit` configuration runs a small bounded fraction of the train and validation sets.
+
 ```bash
-uv run -m scenetokens.train model=wayformer debug=profiler
+uv run -m scenetokens.train model=scenetokens_student dataset=open_scenario paths=open_scenario paths.tag=[dataset_tag] debug=fdr test=false
 ```
 
-# Multirun training (Parameter Sweeps)
+## Multirun Training
 
-To run a sweep of experiments use `-m` and specify in the command line the parameter(s) to be sweeped. For example:
+Use `-m` for Hydra multirun sweeps.
+
 ```bash
 uv run -m scenetokens.train -m model=[model_name] model.config.num_classes=10,20,50,100
 ```
-This will launch 4 sequential experiments where the value `num_classess` will be set to 10, 20, 50 and 100, respectively. The experiment logs will be saved to `out/logs/multiruns` instead of `out/logs/runs/`.

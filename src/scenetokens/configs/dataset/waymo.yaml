@@ -2,3 +2,8 @@ defaults:
   - default.yaml
 
 _target_: scenetokens.datasets.waymo_dataset.WaymoDataset
+
+config:
+  # Legacy Waymo frame-interval mask.
+  # OpenScenario uses target_frequency_hz instead because it is expressed in physical units.
+  trajectory_sample_interval: 1

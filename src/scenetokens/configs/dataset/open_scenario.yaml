@@ -1,4 +1,9 @@
 defaults:
   - default.yaml
 
-_target_: scenetokens.datasets.open_sceanrio_dataset.OpenScenarioDataset
+_target_: scenetokens.datasets.open_scenario_dataset.OpenScenarioDataset
+
+config:
+  # Target physical sampling frequency in hertz for OpenScenario temporal normalisation.
+  # The loader preserves fixed time scale by selecting the closest integer stride from the source timestamps.
+  target_frequency_hz: 10.0
