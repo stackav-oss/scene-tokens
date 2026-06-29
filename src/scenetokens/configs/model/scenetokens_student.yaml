@@ -1,9 +1,0 @@
-defaults:
-  - scenetokens.yaml
-
-config:
-  # Student-equivalent SceneTokens settings retained for historical experiment compatibility.
-  model_name: scenetokens-student
-  token_conditioning: true
-  tokenizer:
-    normalize: true

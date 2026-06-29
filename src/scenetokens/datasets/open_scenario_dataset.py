@@ -44,8 +44,12 @@ class OpenScenarioDataset(BaseDataset):
             └── *.pkl
 
     OpenScenario logs may contain different physical durations.
-    The loader preserves the source time scale by deriving a fixed integer stride from `target_frequency_hz`, then
-    enforces the configured model horizon by truncating long scenarios and skipping scenarios that are too short.
+    The loader preserves the source time scale by
+    deriving a fixed integer stride from `target_frequency_hz`,
+    then enforces the configured model horizon by
+    truncating long scenarios and skipping scenarios that are too short.
+    Sampled timestamps are rebased to the selected window origin
+    so downstream float32 features retain sub-second precision.
     """
 
     def __init__(self, config: DictConfig) -> None:
@@ -104,7 +108,11 @@ class OpenScenarioDataset(BaseDataset):
             raise _OpenScenarioWindowError(error_message)
 
         window_indices = sampled_indices[: self.total_steps]
-        timestamps_seconds = [float(scenario.metadata.timestamps_seconds[int(index)]) for index in window_indices]
+        window_timestamps_seconds = np.asarray(
+            [float(scenario.metadata.timestamps_seconds[int(index)]) for index in window_indices],
+            dtype=np.float64,
+        )
+        timestamps_seconds = (window_timestamps_seconds - window_timestamps_seconds[0]).tolist()
         agent_data = scenario.agent_data.model_copy(
             update={"agent_trajectories": scenario.agent_data.agent_trajectories[:, window_indices, :]}
         )
