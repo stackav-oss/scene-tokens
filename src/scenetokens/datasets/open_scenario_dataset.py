@@ -13,7 +13,7 @@ from scenetokens.utils import pylogger
 
 
 _LOGGER: Final = pylogger.get_pylogger(__name__)
-_FREQUENCY_TOLERANCE_HZ: Final = 1e-3
+_FREQUENCY_TOLERANCE_HZ: Final = 1e-1
 _MIN_SAMPLE_INTERVAL: Final = 1
 _MIN_TIMESTAMPS_FOR_FREQUENCY: Final = 2
 _MIN_TARGET_FREQUENCY_HZ: Final = 0.0
@@ -62,7 +62,7 @@ class OpenScenarioDataset(BaseDataset):
         try:
             return super().load_and_process_scenario(path)
         except _OpenScenarioWindowError as exc:
-            _LOGGER.warning("Skipping OpenScenario file %s: %s", path, exc)
+            _LOGGER.debug("Skipping OpenScenario file %s: %s", path, exc)
             return None
 
     @override
@@ -140,7 +140,7 @@ class OpenScenarioDataset(BaseDataset):
                 f"target_frequency_hz={target_frequency_hz:.6g} requires upsampling source frequency "
                 f"{source_frequency_hz:.6g} for scenario {scenario.metadata.scenario_id}."
             )
-            raise ValueError(error_message)
+            raise _OpenScenarioWindowError(error_message)
 
         sample_interval = max(_MIN_SAMPLE_INTERVAL, round(source_frequency_hz / target_frequency_hz))
         achieved_frequency_hz = source_frequency_hz / sample_interval
