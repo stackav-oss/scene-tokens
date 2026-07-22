@@ -847,10 +847,19 @@ class BaseDataset(Dataset, ABC):
                 polyline_mask_list.append(segments_mask)
 
         if len(polyline_list) == 0:
-            return (
-                np.zeros((num_center_agents, 0, max_points_per_lane, centered_polylines.shape[-1])),
-                np.zeros((num_center_agents, 0, max_points_per_lane)),
-            )
+            max_num_roads = self.config.max_num_roads
+            num_polyline_features = centered_polylines.shape[-1] - 1 + 3 + self.config.total_map_types
+            return {
+                "map_polylines": np.zeros(
+                    (num_center_agents, max_num_roads, max_points_per_lane, num_polyline_features),
+                    dtype=np.float32,
+                ),
+                "map_polylines_mask": np.zeros(
+                    (num_center_agents, max_num_roads, max_points_per_lane),
+                    dtype=bool,
+                ),
+                "map_polylines_center": np.zeros((num_center_agents, max_num_roads, 3), dtype=np.float32),
+            }
 
         # Polylines shape: (C, N, M, 7)
         # Polylines mask shape: (C, N, M)
@@ -1111,11 +1120,14 @@ class BaseDataset(Dataset, ABC):
         # Add causal label information
         for out in output:
             scenario_id = out["scenario_id"]
-            causal_labels_filepath = Path(f"{self.config.causal_labels_path}/{scenario_id}.json")
+            causal_labels_path = self.config.get("causal_labels_path", None)
+            causal_labels_filepath = None
+            if causal_labels_path:
+                causal_labels_filepath = Path(causal_labels_path, f"{scenario_id}.json")
             # Assume all agents are causal if no causal file is given
             agent_ids = out["obj_ids"].squeeze(-1).squeeze(-1)
             causal_idxs = np.zeros_like(agent_ids)
-            if causal_labels_filepath.exists():
+            if causal_labels_filepath is not None and causal_labels_filepath.exists():
                 with causal_labels_filepath.open("r") as f:
                     causal_labels = json.load(f)
 
@@ -1127,7 +1139,7 @@ class BaseDataset(Dataset, ABC):
                     causal_idxs[out["track_index_to_predict"]] = True
                 # out['causal_ids_votes'] = np.array(causal_labels['labeler_votes'], dtype=int)
             else:
-                print(f"Warning: causal labels file not found for scenario {scenario_id}")
+                _LOGGER.debug("Causal labels file not found for scenario %s", scenario_id)
                 causal_idxs[out["track_index_to_predict"]] = True
 
             # Mask out padded agents and/or agents with invalid histories (i.e., full mask is False)

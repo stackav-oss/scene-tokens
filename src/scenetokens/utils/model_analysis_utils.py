@@ -42,6 +42,14 @@ def get_scenario_dec_embeddings(
     return np.asarray(scenario_ids), np.stack(embeddings).astype(np.float64)
 
 
+def _get_individual_scenario_score(model_output: output.ModelOutput) -> float:
+    """Returns the individual scenario score if present, otherwise NaN."""
+    scenario_scores = model_output.scenario_scores
+    if scenario_scores is None:
+        return float("nan")
+    return float(scenario_scores.individual_scenario_score.value.detach().cpu().item())
+
+
 def get_scenario_classes_best_mode(
     model_outputs: dict[str, output.ModelOutput],
 ) -> tuple[npt.NDArray[np.str_], npt.NDArray[np.int64], npt.NDArray[np.float64], int]:
@@ -68,7 +76,7 @@ def get_scenario_classes_best_mode(
 
         scenario_ids.append(scenario_id)
         scenario_classes.append(indices[selected_mode])
-        scenario_scores.append(model_output.scene_score.value.detach().cpu().item())
+        scenario_scores.append(_get_individual_scenario_score(model_output))
 
     return np.asarray(scenario_ids), np.array(scenario_classes).reshape(-1, 1), np.array(scenario_scores), num_classes
 
@@ -289,7 +297,10 @@ def plot_manifold_by_tokens(
                 idx = scenario_classes == scenario_class
                 alphas[idx] = class_counts[i]
         case "scores":
-            scores = np.array([output.scene_score.value.detach().cpu().item() for output in model_outputs.values()])
+            scores = np.array([_get_individual_scenario_score(model_output) for model_output in model_outputs.values()])
+            if np.isnan(scores).all():
+                error_message = "Score-based alpha requires scenario scores, but none were found in the cached outputs."
+                raise ValueError(error_message)
             alphas = utils.minmax_scaler(scores)
         case _:
             alphas = np.ones(scenario_classes.shape, dtype=np.float32)
@@ -333,6 +344,9 @@ def compute_score_analysis(
     """
     # Get the predicted classes for the best mode
     _, scenario_classes, scenario_scores, _ = get_scenario_classes_best_mode(model_outputs)
+    if np.isnan(scenario_scores).all():
+        error_message = "Score analysis requires scenario scores, but none were found in the cached outputs."
+        raise ValueError(error_message)
     scenario_classes = scenario_classes.squeeze(-1)
 
     unique_classes = np.unique(scenario_classes)
